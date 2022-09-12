@@ -1,28 +1,18 @@
-error[E0716]: temporary value dropped while borrowed
-  --> $DIR/auto-trait-regions.rs:48:24
+error[E0626]: borrow may still be in use when generator yields
+  --> $DIR/auto-trait-regions.rs:48:19
    |
 LL |         let a = A(&mut true, &mut true, No);
-   |                        ^^^^                - temporary value is freed at the end of this statement
-   |                        |
-   |                        creates a temporary value which is freed while still in use
-...
-LL |         assert_foo(a);
-   |                    - borrow later used here
-   |
-   = note: consider using a `let` binding to create a longer lived value
+   |                   ^^^^^^^^^
+LL |         yield;
+   |         ----- possible yield occurs here
 
-error[E0716]: temporary value dropped while borrowed
-  --> $DIR/auto-trait-regions.rs:48:35
+error[E0626]: borrow may still be in use when generator yields
+  --> $DIR/auto-trait-regions.rs:48:30
    |
 LL |         let a = A(&mut true, &mut true, No);
-   |                                   ^^^^     - temporary value is freed at the end of this statement
-   |                                   |
-   |                                   creates a temporary value which is freed while still in use
-...
-LL |         assert_foo(a);
-   |                    - borrow later used here
-   |
-   = note: consider using a `let` binding to create a longer lived value
+   |                              ^^^^^^^^^
+LL |         yield;
+   |         ----- possible yield occurs here
 
 error: implementation of `Foo` is not general enough
   --> $DIR/auto-trait-regions.rs:34:5
@@ -34,7 +24,7 @@ LL |     assert_foo(gen);
    = note: ...but `Foo` is actually implemented for the type `&'static OnlyFooIfStaticRef`
 
 error: implementation of `Foo` is not general enough
-  --> $DIR/auto-trait-regions.rs:54:5
+  --> $DIR/auto-trait-regions.rs:52:5
    |
 LL |     assert_foo(gen);
    |     ^^^^^^^^^^^^^^^ implementation of `Foo` is not general enough
@@ -42,6 +32,15 @@ LL |     assert_foo(gen);
    = note: `Foo` would have to be implemented for the type `A<'0, '1>`, for any two lifetimes `'0` and `'1`...
    = note: ...but `Foo` is actually implemented for the type `A<'_, '2>`, for some specific lifetime `'2`
 
-error: aborting due to 4 previous errors
+error: implementation of `Foo` is not general enough
+  --> $DIR/auto-trait-regions.rs:52:5
+   |
+LL |     assert_foo(gen);
+   |     ^^^^^^^^^^^^^^^ implementation of `Foo` is not general enough
+   |
+   = note: `Foo` would have to be implemented for the type `A<'0, '1>`, for any two lifetimes `'0` and `'1`...
+   = note: ...but `Foo` is actually implemented for the type `A<'_, '2>`, for some specific lifetime `'2`
 
-For more information about this error, try `rustc --explain E0716`.
+error: aborting due to 5 previous errors
+
+For more information about this error, try `rustc --explain E0626`.

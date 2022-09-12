@@ -321,6 +321,7 @@ pub struct ScopeTree {
 pub enum RvalueCandidateType {
     Borrow { target: hir::ItemLocalId, lifetime: Option<Scope> },
     Pattern { target: hir::ItemLocalId, lifetime: Option<Scope> },
+    Call { target: hir::ItemLocalId, lifetime: Option<Scope> },
 }
 
 #[derive(Debug, Copy, Clone, TyEncodable, TyDecodable, HashStable)]
@@ -365,7 +366,8 @@ impl ScopeTree {
         debug!("record_rvalue_candidate(var={var:?}, type={candidate_type:?})");
         match &candidate_type {
             RvalueCandidateType::Borrow { lifetime: Some(lifetime), .. }
-            | RvalueCandidateType::Pattern { lifetime: Some(lifetime), .. } => {
+            | RvalueCandidateType::Pattern { lifetime: Some(lifetime), .. }
+            | RvalueCandidateType::Call { lifetime: Some(lifetime), .. } => {
                 assert!(var.local_id != lifetime.item_local_id())
             }
             _ => {}

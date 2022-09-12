@@ -5,16 +5,18 @@
 use std::cell::Cell;
 
 // We do not promote mutable references.
-static mut TEST1: Option<&mut [i32]> = Some(&mut [1, 2, 3]); //~ ERROR temporary value dropped while borrowed
+static mut TEST1: Option<&mut [i32]> = Some(&mut [1, 2, 3]);
 
 static mut TEST2: &'static mut [i32] = {
-    let x = &mut [1,2,3]; //~ ERROR temporary value dropped while borrowed
+    let x = &mut [1, 2, 3]; //~ ERROR temporary value dropped while borrowed
     x
 };
 
 // We do not promote fn calls in `fn`, including `const fn`.
 pub const fn promote_cal(b: bool) -> i32 {
-    const fn foo() { [()][42] }
+    const fn foo() {
+        [()][42]
+    }
 
     if b {
         let _x: &'static () = &foo(); //~ ERROR temporary value dropped while borrowed
@@ -23,7 +25,10 @@ pub const fn promote_cal(b: bool) -> i32 {
 }
 
 // We do not promote union field accesses in `fn.
-union U { x: i32, y: i32 }
+union U {
+    x: i32,
+    y: i32,
+}
 pub const fn promote_union() {
     let _x: &'static i32 = &unsafe { U { x: 0 }.x }; //~ ERROR temporary value dropped while borrowed
 }
@@ -47,11 +52,11 @@ fn main() {
     let _val: &'static _ = &(Cell::new(1), 2).1; //~ ERROR temporary value dropped while borrowed
 
     // No promotion of fallible operations.
-    let _val: &'static _ = &(1/0); //~ ERROR temporary value dropped while borrowed
-    let _val: &'static _ = &(1/(1-1)); //~ ERROR temporary value dropped while borrowed
-    let _val: &'static _ = &(1%0); //~ ERROR temporary value dropped while borrowed
-    let _val: &'static _ = &(1%(1-1)); //~ ERROR temporary value dropped while borrowed
-    let _val: &'static _ = &([1,2,3][4]+1); //~ ERROR temporary value dropped while borrowed
+    let _val: &'static _ = &(1 / 0); //~ ERROR temporary value dropped while borrowed
+    let _val: &'static _ = &(1 / (1 - 1)); //~ ERROR temporary value dropped while borrowed
+    let _val: &'static _ = &(1 % 0); //~ ERROR temporary value dropped while borrowed
+    let _val: &'static _ = &(1 % (1 - 1)); //~ ERROR temporary value dropped while borrowed
+    let _val: &'static _ = &([1, 2, 3][4] + 1); //~ ERROR temporary value dropped while borrowed
 
     // No promotion of temporaries that need to be dropped.
     let _val: &'static _ = &TEST_DROP;

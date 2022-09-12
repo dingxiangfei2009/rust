@@ -509,10 +509,8 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
     }
 
     pub(in super::super) fn resolve_rvalue_scopes(&self, def_id: DefId) {
-        let scope_tree = self.tcx.region_scope_tree(def_id);
-        let rvalue_scopes = { rvalue_scopes::resolve_rvalue_scopes(self, &scope_tree, def_id) };
-        let mut typeck_results = self.inh.typeck_results.borrow_mut();
-        typeck_results.rvalue_scopes = rvalue_scopes;
+        let rvalue_scopes = rvalue_scopes::resolve_rvalue_scopes(self, def_id);
+        self.typeck_results.borrow_mut().rvalue_scopes = rvalue_scopes;
     }
 
     pub(in super::super) fn resolve_generator_interiors(&self, def_id: DefId) {

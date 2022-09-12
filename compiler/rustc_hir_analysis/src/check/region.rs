@@ -578,9 +578,12 @@ fn resolve_local<'tcx>(
     // due to rule C.
 
     if let Some(expr) = init {
-        record_rvalue_scope_if_borrow_expr(visitor, &expr, blk_scope);
-
         if let Some(pat) = pat {
+            let is_call =
+                matches!(expr.kind, hir::ExprKind::Call(..) | hir::ExprKind::MethodCall(..));
+            if !is_call {
+                record_rvalue_scope_if_borrow_expr(visitor, &expr, blk_scope);
+            }
             if is_binding_pat(pat) {
                 visitor.scope_tree.record_rvalue_candidate(
                     expr.hir_id,
@@ -588,8 +591,15 @@ fn resolve_local<'tcx>(
                         target: expr.hir_id.local_id,
                         lifetime: blk_scope,
                     },
-                );
+                )
+            } else if is_not_wildcard_pat(pat) && is_call {
+                visitor.scope_tree.record_rvalue_candidate(
+                    expr.hir_id,
+                    RvalueCandidateType::Call { target: expr.hir_id.local_id, lifetime: blk_scope },
+                )
             }
+        } else {
+            record_rvalue_scope_if_borrow_expr(visitor, &expr, blk_scope)
         }
     }
 
@@ -601,6 +611,28 @@ fn resolve_local<'tcx>(
     }
     if let Some(pat) = pat {
         visitor.visit_pat(pat);
+    }
+
+    fn is_not_wildcard_pat(pat: &hir::Pat<'_>) -> bool {
+        match pat.kind {
+            PatKind::Binding(..) => true,
+            PatKind::Struct(_, ref field_pats, _) => {
+                field_pats.iter().any(|fp| is_not_wildcard_pat(&fp.pat))
+            }
+            PatKind::Slice(ref pats1, ref pats2, ref pats3) => {
+                pats1.iter().any(|p| is_not_wildcard_pat(p))
+                    || pats2.iter().any(|p| is_not_wildcard_pat(p))
+                    || pats3.iter().any(|p| is_not_wildcard_pat(p))
+            }
+
+            PatKind::Or(ref subpats)
+            | PatKind::TupleStruct(_, ref subpats, _)
+            | PatKind::Tuple(ref subpats, _) => subpats.iter().any(|p| is_not_wildcard_pat(&p)),
+
+            PatKind::Ref(ref subpat, _) | PatKind::Box(ref subpat) => is_not_wildcard_pat(&subpat),
+
+            PatKind::Wild | PatKind::Path(_) | PatKind::Lit(_) | PatKind::Range(_, _, _) => false,
+        }
     }
 
     /// Returns `true` if `pat` match the `P&` non-terminal.
@@ -671,6 +703,7 @@ fn resolve_local<'tcx>(
     /// ```text
     ///     E& = & ET
     ///        | StructName { ..., f: E&, ... }
+    ///        | fun ( E& ... ) if E& is extended argument
     ///        | [ ..., E&, ... ]
     ///        | ( ..., E&, ... )
     ///        | {...; E&}
@@ -713,8 +746,10 @@ fn resolve_local<'tcx>(
                 }
             }
             hir::ExprKind::Call(..) | hir::ExprKind::MethodCall(..) => {
-                // FIXME(@dingxiangfei2009): choose call arguments here
-                // for candidacy for extended parameter rule application
+                visitor.scope_tree.record_rvalue_candidate(
+                    expr.hir_id,
+                    RvalueCandidateType::Call { target: expr.hir_id.local_id, lifetime: blk_id },
+                );
             }
             hir::ExprKind::Index(..) => {
                 // FIXME(@dingxiangfei2009): select the indices

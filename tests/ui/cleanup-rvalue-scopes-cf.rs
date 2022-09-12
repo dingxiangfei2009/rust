@@ -1,15 +1,19 @@
 // Test that the borrow checker prevents pointers to temporaries
 // with statement lifetimes from escaping.
+// run-pass
 
-use std::ops::Drop;
+struct StackBox<T> {
+    f: T,
+}
 
-static mut FLAGS: u64 = 0;
+#[allow(unused)]
+struct AddFlags {
+    bits: u64,
+}
 
-struct StackBox<T> { f: T }
-struct AddFlags { bits: u64 }
-
+#[allow(non_snake_case)]
 fn AddFlags(bits: u64) -> AddFlags {
-    AddFlags { bits: bits }
+    AddFlags { bits }
 }
 
 fn arg(x: &AddFlags) -> &AddFlags {
@@ -23,13 +27,12 @@ impl AddFlags {
 }
 
 pub fn main() {
-    let x1 = arg(&AddFlags(1)); //~ ERROR temporary value dropped while borrowed
-    let x2 = AddFlags(1).get(); //~ ERROR temporary value dropped while borrowed
-    let x3 = &*arg(&AddFlags(1)); //~ ERROR temporary value dropped while borrowed
-    let ref x4 = *arg(&AddFlags(1)); //~ ERROR temporary value dropped while borrowed
-    let &ref x5 = arg(&AddFlags(1)); //~ ERROR temporary value dropped while borrowed
-    let x6 = AddFlags(1).get(); //~ ERROR temporary value dropped while borrowed
+    let x1 = arg(&AddFlags(1));
+    let x2 = AddFlags(1).get();
+    let x3 = &*arg(&AddFlags(1));
+    let ref x4 = *arg(&AddFlags(1));
+    let &ref x5 = arg(&AddFlags(1));
+    let x6 = AddFlags(1).get();
     let StackBox { f: x7 } = StackBox { f: AddFlags(1).get() };
-    //~^ ERROR temporary value dropped while borrowed
     (x1, x2, x3, x4, x5, x6, x7);
 }
