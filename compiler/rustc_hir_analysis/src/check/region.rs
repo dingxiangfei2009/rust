@@ -332,6 +332,10 @@ fn resolve_expr<'tcx>(visitor: &mut RegionResolutionVisitor<'tcx>, expr: &'tcx h
                 // record_superlifetime(new_cx, expr.callee_id);
             }
 
+            hir::ExprKind::Match(scrutinee, _, _) => {
+                terminating(scrutinee.hir_id.local_id);
+            }
+
             _ => {}
         }
     }
@@ -464,6 +468,17 @@ fn resolve_expr<'tcx>(visitor: &mut RegionResolutionVisitor<'tcx>, expr: &'tcx h
             visitor.visit_expr(cond);
             visitor.visit_expr(then);
             visitor.cx = expr_cx;
+        }
+
+        hir::ExprKind::Match(scrutinee, _, _) => {
+            visitor.scope_tree.record_rvalue_candidate(
+                scrutinee.hir_id,
+                RvalueCandidateType::Borrow {
+                    target: scrutinee.hir_id.local_id,
+                    lifetime: Some(Scope { id: expr.hir_id.local_id, data: ScopeData::Node }),
+                },
+            );
+            intravisit::walk_expr(visitor, expr);
         }
 
         _ => intravisit::walk_expr(visitor, expr),
