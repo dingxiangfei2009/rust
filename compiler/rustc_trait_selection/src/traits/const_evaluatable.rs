@@ -71,10 +71,16 @@ pub fn is_const_evaluatable<'tcx>(
                 let concrete = infcx.const_eval_resolve(param_env, uv, span);
                 match concrete {
                     Err(ErrorHandled::TooGeneric(_)) => {
-                        Err(NotConstEvaluatable::Error(infcx.dcx().span_delayed_bug(
-                            span,
-                            "Missing value for constant, but no error reported?",
-                        )))
+                        if uv.has_non_region_infer() {
+                            Err(NotConstEvaluatable::MentionsInfer)
+                        } else if uv.has_non_region_param() {
+                            Err(NotConstEvaluatable::MentionsParam)
+                        } else {
+                            Err(NotConstEvaluatable::Error(infcx.dcx().span_delayed_bug(
+                                span,
+                                "Missing value for constant, but no error reported?",
+                            )))
+                        }
                     }
                     Err(ErrorHandled::Reported(e, _)) => Err(NotConstEvaluatable::Error(e.into())),
                     Ok(_) => Ok(()),
