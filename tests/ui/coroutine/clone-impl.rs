@@ -1,7 +1,10 @@
 // gate-test-coroutine_clone
 // Verifies that non-static coroutines can be cloned/copied if all their upvars and locals held
 // across awaits can be cloned/copied.
-//@compile-flags: --diagnostic-width=300
+//@ revisions: classic relocate
+//@ compile-flags: --diagnostic-width=300
+//@ [classic] compile-flags: -Zpack-coroutine-layout=no
+//@ [relocate] compile-flags: -Zpack-coroutine-layout=captures-only
 
 #![feature(coroutines, coroutine_clone, stmt_expr_attributes)]
 
@@ -72,6 +75,7 @@ fn test4() {
     };
     check_copy(&gen_clone_1);
     //~^ ERROR the trait bound `Vec<u32>: Copy` is not satisfied
+    //~| ERROR the trait bound `Vec<u32>: Copy` is not satisfied
     check_clone(&gen_clone_1);
 }
 
@@ -84,8 +88,10 @@ fn test5() {
     };
     check_copy(&gen_non_clone);
     //~^ ERROR the trait bound `NonClone: Copy` is not satisfied
+    //~| ERROR the trait bound `NonClone: Copy` is not satisfied
     check_clone(&gen_non_clone);
     //~^ ERROR the trait bound `NonClone: Clone` is not satisfied
+    //~| ERROR the trait bound `NonClone: Clone` is not satisfied
 }
 
 fn check_copy<T: Copy>(_x: &T) {}
