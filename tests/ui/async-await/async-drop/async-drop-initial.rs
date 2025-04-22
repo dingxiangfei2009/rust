@@ -11,10 +11,10 @@
 //@ edition: 2021
 
 // FIXME(zetanumbers): consider AsyncDestruct::async_drop cleanup tests
-use core::future::{async_drop_in_place, AsyncDrop, Future};
+use core::future::{AsyncDrop, Future, async_drop_in_place};
 use core::hint::black_box;
 use core::mem::{self, ManuallyDrop};
-use core::pin::{pin, Pin};
+use core::pin::{Pin, pin};
 use core::task::{Context, Poll, Waker};
 
 async fn test_async_drop<T>(x: T, _size: usize) {
@@ -26,8 +26,8 @@ async fn test_async_drop<T>(x: T, _size: usize) {
     // async functions.
     #[cfg(target_pointer_width = "64")]
     assert_eq!(
-        mem::size_of_val(&*dtor),
         _size,
+        mem::size_of_val(&*dtor),
         "sizes did not match for async destructor of type {}",
         core::any::type_name::<T>(),
     );
@@ -54,15 +54,15 @@ fn main() {
     let fut = pin!(async {
         test_async_drop(Int(0), 16).await;
         test_async_drop(AsyncInt(0), 32).await;
-        test_async_drop([AsyncInt(1), AsyncInt(2)], 104).await;
-        test_async_drop((AsyncInt(3), AsyncInt(4)), 120).await;
+        test_async_drop([AsyncInt(1), AsyncInt(2)], 96).await;
+        test_async_drop((AsyncInt(3), AsyncInt(4)), 112).await;
         test_async_drop(5, 16).await;
         let j = 42;
         test_async_drop(&i, 16).await;
         test_async_drop(&j, 16).await;
         test_async_drop(
             AsyncStruct { b: AsyncInt(8), a: AsyncInt(7), i: 6 },
-            136,
+            if cfg!(panic = "unwind") { 128 } else { 136 },
         ).await;
         test_async_drop(ManuallyDrop::new(AsyncInt(9)), 16).await;
 
@@ -81,13 +81,13 @@ fn main() {
         )
         .await;
 
-        test_async_drop(AsyncEnum::A(AsyncInt(12)), 104).await;
-        test_async_drop(AsyncEnum::B(SyncInt(13)), 104).await;
+        test_async_drop(AsyncEnum::A(AsyncInt(12)), 96).await;
+        test_async_drop(AsyncEnum::B(SyncInt(13)), 96).await;
 
         test_async_drop(SyncInt(14), 16).await;
         test_async_drop(
             SyncThenAsync { i: 15, a: AsyncInt(16), b: SyncInt(17), c: AsyncInt(18) },
-            120,
+            112,
         )
         .await;
 
@@ -108,6 +108,7 @@ fn main() {
         )
         .await;
 
+        test_async_drop(AsyncUnion { signed: 21 }, 32).await;
         test_async_drop(AsyncUnion { signed: 21 }, 32).await;
     });
     let res = fut.poll(&mut cx);
