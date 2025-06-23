@@ -1608,6 +1608,8 @@ pub enum ClosureKind {
     /// additionally allows capturing the coroutine's upvars by ref, and therefore
     /// needs to be specially treated during analysis and borrowck.
     CoroutineClosure(CoroutineDesugaring),
+    /// This is an `init` block
+    Init,
 }
 
 /// A block of statements `{ .. }`, which may have a label (in this case the
@@ -2304,6 +2306,8 @@ impl Expr<'_> {
 
             ExprKind::Break(..)
             | ExprKind::Ret(..)
+            | ExprKind::InitTail(..)
+            | ExprKind::InitBlock(..)
             | ExprKind::Yield(..)
             | ExprKind::Become(..) => ExprPrecedence::Jump,
 
@@ -2401,6 +2405,8 @@ impl Expr<'_> {
             | ExprKind::If(..)
             | ExprKind::Match(..)
             | ExprKind::Closure { .. }
+            | ExprKind::InitTail(..)
+            | ExprKind::InitBlock(..)
             | ExprKind::Block(..)
             | ExprKind::Repeat(..)
             | ExprKind::Array(..)
@@ -2516,6 +2522,8 @@ impl Expr<'_> {
             | ExprKind::Continue(..)
             | ExprKind::Ret(..)
             | ExprKind::Become(..)
+            | ExprKind::InitTail(..)
+            | ExprKind::InitBlock(..)
             | ExprKind::Let(..)
             | ExprKind::Loop(..)
             | ExprKind::Assign(..)
@@ -2837,6 +2845,12 @@ pub enum ExprKind<'hir> {
     /// e.g. `unsafe<'a> &'a i32` <=> `&i32`.
     UnsafeBinderCast(UnsafeBinderCastKind, &'hir Expr<'hir>, Option<&'hir Ty<'hir>>),
 
+    /// A tail expression of an `init` block
+    InitTail(&'hir InitKind<'hir>),
+
+    /// The outer of an `init` block
+    InitBlock(&'hir InitBlock<'hir>),
+
     /// A placeholder for an expression that wasn't syntactically well formed in some way.
     Err(rustc_span::ErrorGuaranteed),
 }
@@ -2852,6 +2866,31 @@ pub enum StructTailExpr<'hir> {
     /// fields' default values will be used to populate any fields not explicitly mentioned:
     /// `Foo { .. }`.
     DefaultFields(Span),
+}
+
+/// An `init` expression or block
+#[derive(Debug, Clone, Copy, HashStable_Generic)]
+pub struct InitBlock<'hir> {
+    pub def_id: LocalDefId,
+    pub body: BodyId,
+    pub init_kw_span: Span,
+    pub fn_decl: &'hir FnDecl<'hir>,
+}
+
+#[derive(Debug, Clone, Copy, HashStable_Generic)]
+pub enum InitKind<'hir> {
+    /// An array of init-able expression, `[init .., init .., init ..]`
+    Array(&'hir [Expr<'hir>]),
+    /// A repeating init-able expression, `[init ..; $const]`
+    Repeat(&'hir Expr<'hir>, &'hir ConstArg<'hir>),
+    /// A tuple of init-able expression
+    Tuple(&'hir [Expr<'hir>]),
+    /// Struct init-able expression
+    Struct(&'hir QPath<'hir>, &'hir [ExprField<'hir>], StructTailExpr<'hir>),
+    /// Free expression without further in-place `init`
+    Free(&'hir Expr<'hir>),
+    /// A possibly recursive block with one eventually in-place tail expression
+    Block(&'hir Block<'hir>, Option<Label>),
 }
 
 /// Represents an optionally `Self`-qualified value/type path or associated extension.
@@ -4814,9 +4853,12 @@ impl<'hir> Node<'hir> {
                 owner_id, kind: ItemKind::GlobalAsm { asm: _, fake_body }, ..
             }) => Some((owner_id.def_id, *fake_body)),
 
-            Node::Expr(Expr { kind: ExprKind::Closure(Closure { def_id, body, .. }), .. }) => {
-                Some((*def_id, *body))
-            }
+            Node::Expr(Expr {
+                kind:
+                    ExprKind::Closure(Closure { def_id, body, .. })
+                    | ExprKind::InitBlock(InitBlock { def_id, body, .. }),
+                ..
+            }) => Some((*def_id, *body)),
 
             Node::AnonConst(constant) => Some((constant.def_id, constant.body)),
             Node::ConstBlock(constant) => Some((constant.def_id, constant.body)),
@@ -4870,7 +4912,7 @@ impl<'hir> Node<'hir> {
                 _ => None,
             },
             Node::Expr(e) => match e.kind {
-                ExprKind::Closure { .. } => Some(FnKind::Closure),
+                ExprKind::Closure { .. } | ExprKind::InitBlock(_) => Some(FnKind::Closure),
                 _ => None,
             },
             _ => None,
