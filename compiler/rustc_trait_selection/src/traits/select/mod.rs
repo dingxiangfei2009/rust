@@ -1989,6 +1989,8 @@ impl<'tcx> SelectionContext<'_, 'tcx> {
                 | AsyncClosureCandidate
                 | AsyncFnKindHelperCandidate
                 | CoroutineCandidate
+                | InitCandidate
+                | TrivialInitCandidate
                 | FutureCandidate
                 | IteratorCandidate
                 | AsyncIteratorCandidate
@@ -2118,6 +2120,7 @@ impl<'tcx> SelectionContext<'_, 'tcx> {
             | ty::Array(..)
             | ty::Closure(..)
             | ty::CoroutineClosure(..)
+            | ty::Init(..)
             | ty::Never
             | ty::Error(_) => ty::Binder::dummy(vec![]),
 
@@ -2215,7 +2218,9 @@ impl<'tcx> SelectionContext<'_, 'tcx> {
                 .instantiate(self.infcx.tcx, args)
                 .map_bound(|witness| witness.types.to_vec()),
 
-            ty::Closure(_, args) => ty::Binder::dummy(args.as_closure().upvar_tys().to_vec()),
+            ty::Closure(_, args) | ty::Init(_, args) => {
+                ty::Binder::dummy(args.as_closure().upvar_tys().to_vec())
+            }
 
             ty::CoroutineClosure(_, args) => {
                 ty::Binder::dummy(args.as_coroutine_closure().upvar_tys().to_vec())
@@ -2317,7 +2322,7 @@ impl<'tcx> SelectionContext<'_, 'tcx> {
                 })
             }
 
-            ty::Closure(_, args) => {
+            ty::Closure(_, args) | ty::Init(_, args) => {
                 let ty = self.infcx.shallow_resolve(args.as_closure().tupled_upvars_ty());
                 ty::Binder::dummy(AutoImplConstituents { types: vec![ty], assumptions: vec![] })
             }

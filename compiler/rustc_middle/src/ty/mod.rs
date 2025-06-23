@@ -1765,6 +1765,7 @@ impl<'tcx> TyCtxt<'tcx> {
             | ty::InstanceKind::CloneShim(..)
             | ty::InstanceKind::ThreadLocalShim(..)
             | ty::InstanceKind::FnPtrAddrShim(..)
+            | ty::InstanceKind::Init(..)
             | ty::InstanceKind::AsyncDropGlueCtorShim(..)
             | ty::InstanceKind::AsyncDropGlue(..) => self.mir_shims(instance),
         }
@@ -2136,6 +2137,11 @@ impl<'tcx> TyCtxt<'tcx> {
             DefKind::Closure => {
                 // Closures and RPITs will eventually have const conditions
                 // for `[const]` bounds.
+                false
+            }
+            DefKind::Init => {
+                // This depends on further design and whether Closure/RPITs
+                // would receive `~const` bounds.
                 false
             }
             DefKind::Ctor(_, CtorKind::Const)

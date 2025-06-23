@@ -633,6 +633,8 @@ where
                 panic!("unexpected self type for `{goal:?}`")
             }
 
+            ty::Init(..) => todo!(),
+
             ty::Infer(ty::TyVar(_)) => {
                 // If we hit infer when normalizing the self type of an alias,
                 // then bail with ambiguity. We should never encounter this on
@@ -733,6 +735,7 @@ where
             | ty::FnPtr(..)
             | ty::UnsafeBinder(_)
             | ty::Alias(..)
+            | ty::Init(..)
             | ty::Closure(..)
             | ty::CoroutineClosure(..)
             | ty::Coroutine(..)
