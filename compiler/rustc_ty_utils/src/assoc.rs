@@ -20,6 +20,7 @@ pub(crate) fn provide(providers: &mut Providers) {
     };
 }
 
+/// Collect associated items in the HIR with the given `def_id`
 fn associated_item_def_ids(tcx: TyCtxt<'_>, def_id: LocalDefId) -> &[DefId] {
     let item = tcx.hir_expect_item(def_id);
     match item.kind {

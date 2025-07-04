@@ -26,7 +26,7 @@ pub use generics::*;
 pub use intrinsic::IntrinsicDef;
 use rustc_abi::{Align, FieldIdx, Integer, IntegerType, ReprFlags, ReprOptions, VariantIdx};
 use rustc_ast::node_id::NodeMap;
-pub use rustc_ast_ir::{Movability, Mutability, try_visit};
+pub use rustc_ast_ir::{Movability, Mutability, TraitRefSource, try_visit};
 use rustc_attr_data_structures::{AttributeKind, StrippedCfgItem, find_attr};
 use rustc_data_structures::fx::{FxHashMap, FxHashSet, FxIndexMap, FxIndexSet};
 use rustc_data_structures::intern::Interned;
@@ -184,6 +184,7 @@ pub struct ResolverGlobalCtxt {
     pub extern_crate_map: UnordMap<LocalDefId, CrateNum>,
     pub maybe_unused_trait_imports: FxIndexSet<LocalDefId>,
     pub module_children: LocalDefIdMap<Vec<ModChild>>,
+    pub module_supertraits: LocalDefIdMap<Vec<DefId>>,
     pub glob_map: FxIndexMap<LocalDefId, FxIndexSet<Symbol>>,
     pub main_def: Option<MainDefinition>,
     pub trait_impls: FxIndexMap<DefId, Vec<LocalDefId>>,

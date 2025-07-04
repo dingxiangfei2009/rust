@@ -1282,6 +1282,7 @@ impl GenericBound {
             hir::TraitBoundModifiers {
                 polarity: hir::BoundPolarity::Maybe(DUMMY_SP),
                 constness: hir::BoundConstness::Never,
+                source: hir::TraitRefSource::Any,
             },
         )
     }
