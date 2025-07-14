@@ -62,6 +62,8 @@ impl Category {
             ExprKind::Array { .. }
             | ExprKind::Tuple { .. }
             | ExprKind::Closure { .. }
+            | ExprKind::Init(_)
+            | ExprKind::InplaceInit(_)
             | ExprKind::Unary { .. }
             | ExprKind::Binary { .. }
             | ExprKind::Box { .. }

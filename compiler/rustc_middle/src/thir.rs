@@ -182,6 +182,20 @@ pub struct ClosureExpr<'tcx> {
 }
 
 #[derive(Clone, Debug, HashStable)]
+pub struct InitBlock<'tcx> {
+    pub init_id: LocalDefId,
+    pub args: UpvarArgs<'tcx>,
+    pub upvars: Box<[ExprId]>,
+    pub fake_reads: Vec<(ExprId, FakeReadCause, HirId)>,
+}
+
+#[derive(Clone, Debug, HashStable)]
+pub enum InitKind {
+    Free(ExprId),
+    Array(Box<[ExprId]>),
+}
+
+#[derive(Clone, Debug, HashStable)]
 pub struct InlineAsmExpr<'tcx> {
     pub asm_macro: AsmMacro,
     pub template: &'tcx [InlineAsmTemplatePiece],
@@ -524,6 +538,10 @@ pub enum ExprKind<'tcx> {
     },
     /// A closure definition.
     Closure(Box<ClosureExpr<'tcx>>),
+    /// A `init` block
+    Init(Box<InitBlock<'tcx>>),
+    /// An in-place initialisation imperative
+    InplaceInit(Box<InitKind>),
     /// A literal.
     Literal {
         lit: hir::Lit,

@@ -249,7 +249,10 @@ fn recurse_build<'tcx>(
             error(GenericConstantTooComplexSub::AssignNotSupported(node.span))?
         }
         // FIXME(explicit_tail_calls): maybe get `become` a new error
-        ExprKind::Closure { .. } | ExprKind::Return { .. } | ExprKind::Become { .. } => {
+        ExprKind::Closure { .. }
+        | ExprKind::Return { .. }
+        | ExprKind::Become { .. }
+        | ExprKind::Init(_) => {
             error(GenericConstantTooComplexSub::ClosureAndReturnNotSupported(node.span))?
         }
         // let expressions imply control flow
@@ -265,7 +268,8 @@ fn recurse_build<'tcx>(
         | ExprKind::UpvarRef { .. }
         | ExprKind::StaticRef { .. }
         | ExprKind::OffsetOf { .. }
-        | ExprKind::ThreadLocalRef(_) => {
+        | ExprKind::ThreadLocalRef(_)
+        | ExprKind::InplaceInit(_) => {
             error(GenericConstantTooComplexSub::OperationNotSupported(node.span))?
         }
     })
@@ -359,6 +363,8 @@ impl<'a, 'tcx> IsThirPolymorphic<'a, 'tcx> {
             | thir::ExprKind::ValueUnwrapUnsafeBinder { .. }
             | thir::ExprKind::WrapUnsafeBinder { .. }
             | thir::ExprKind::Closure(_)
+            | thir::ExprKind::Init(_)
+            | thir::ExprKind::InplaceInit(_)
             | thir::ExprKind::Literal { .. }
             | thir::ExprKind::NonHirLiteral { .. }
             | thir::ExprKind::ZstLiteral { .. }

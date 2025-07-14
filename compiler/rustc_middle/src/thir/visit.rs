@@ -2,7 +2,7 @@ use super::{
     AdtExpr, AdtExprBase, Arm, Block, ClosureExpr, Expr, ExprKind, InlineAsmExpr, InlineAsmOperand,
     Pat, PatKind, Stmt, StmtKind, Thir,
 };
-use crate::thir::LoopMatchMatchData;
+use crate::thir::{InitKind, LoopMatchMatchData};
 
 /// Every `walk_*` method uses deconstruction to access fields of structs and
 /// enums. This will result in a compile error if a field is added, which makes
@@ -155,6 +155,15 @@ pub fn walk_expr<'thir, 'tcx: 'thir, V: Visitor<'thir, 'tcx>>(
             movability: _,
             fake_reads: _,
         }) => {}
+        Init(_) => {}
+        InplaceInit(ref kind) => match &**kind {
+            &InitKind::Free(expr_id) => visitor.visit_expr(&visitor.thir()[expr_id]),
+            InitKind::Array(expr_ids) => {
+                for &eid in expr_ids {
+                    visitor.visit_expr(&visitor.thir()[eid])
+                }
+            }
+        },
         Literal { lit: _, neg: _ } => {}
         NonHirLiteral { lit: _, user_ty: _ } => {}
         ZstLiteral { user_ty: _ } => {}

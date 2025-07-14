@@ -1,6 +1,7 @@
 //! See docs in `build/expr/mod.rs`.
 
 use rustc_abi::FieldIdx;
+use rustc_hir::HirId;
 use rustc_hir::lang_items::LangItem;
 use rustc_index::{Idx, IndexVec};
 use rustc_middle::bug;
@@ -315,88 +316,7 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
                 ref fake_reads,
                 movability: _,
             }) => {
-                // Convert the closure fake reads, if any, from `ExprRef` to mir `Place`
-                // and push the fake reads.
-                // This must come before creating the operands. This is required in case
-                // there is a fake read and a borrow of the same path, since otherwise the
-                // fake read might interfere with the borrow. Consider an example like this
-                // one:
-                // ```
-                // let mut x = 0;
-                // let c = || {
-                //     &mut x; // mutable borrow of `x`
-                //     match x { _ => () } // fake read of `x`
-                // };
-                // ```
-                //
-                for (thir_place, cause, hir_id) in fake_reads.into_iter() {
-                    let place_builder = unpack!(block = this.as_place_builder(block, *thir_place));
-
-                    if let Some(mir_place) = place_builder.try_to_place(this) {
-                        this.cfg.push_fake_read(
-                            block,
-                            this.source_info(this.tcx.hir_span(*hir_id)),
-                            *cause,
-                            mir_place,
-                        );
-                    }
-                }
-
-                // see (*) above
-                let operands: IndexVec<FieldIdx, _> = upvars
-                    .into_iter()
-                    .copied()
-                    .map(|upvar| {
-                        let upvar_expr = &this.thir[upvar];
-                        match Category::of(&upvar_expr.kind) {
-                            // Use as_place to avoid creating a temporary when
-                            // moving a variable into a closure, so that
-                            // borrowck knows which variables to mark as being
-                            // used as mut. This is OK here because the upvar
-                            // expressions have no side effects and act on
-                            // disjoint places.
-                            // This occurs when capturing by copy/move, while
-                            // by reference captures use as_operand
-                            Some(Category::Place) => {
-                                let place = unpack!(block = this.as_place(block, upvar));
-                                this.consume_by_copy_or_move(place)
-                            }
-                            _ => {
-                                // Turn mutable borrow captures into unique
-                                // borrow captures when capturing an immutable
-                                // variable. This is sound because the mutation
-                                // that caused the capture will cause an error.
-                                match upvar_expr.kind {
-                                    ExprKind::Borrow {
-                                        borrow_kind:
-                                            BorrowKind::Mut { kind: MutBorrowKind::Default },
-                                        arg,
-                                    } => unpack!(
-                                        block = this.limit_capture_mutability(
-                                            upvar_expr.span,
-                                            upvar_expr.ty,
-                                            scope.temp_lifetime,
-                                            block,
-                                            arg,
-                                        )
-                                    ),
-                                    _ => {
-                                        unpack!(
-                                            block = this.as_operand(
-                                                block,
-                                                scope,
-                                                upvar,
-                                                LocalInfo::Boring,
-                                                NeedsTemporary::Maybe
-                                            )
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    })
-                    .collect();
-
+                let operands = unpack!(block = this.build_upvars(upvars, fake_reads, scope, block));
                 let result = match args {
                     UpvarArgs::Coroutine(args) => {
                         Box::new(AggregateKind::Coroutine(closure_id.to_def_id(), args))
@@ -408,6 +328,11 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
                         Box::new(AggregateKind::CoroutineClosure(closure_id.to_def_id(), args))
                     }
                 };
+                block.and(Rvalue::Aggregate(result, operands))
+            }
+            ExprKind::Init(box InitBlock { init_id, args, ref upvars, ref fake_reads }) => {
+                let operands = unpack!(block = this.build_upvars(upvars, fake_reads, scope, block));
+                let result = Box::new(AggregateKind::Init(init_id.to_def_id(), args));
                 block.and(Rvalue::Aggregate(result, operands))
             }
             ExprKind::Assign { .. } | ExprKind::AssignOp { .. } => {
@@ -502,6 +427,96 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
                 block.and(Rvalue::Use(operand))
             }
         }
+    }
+
+    fn build_upvars(
+        &mut self,
+        upvars: &[ExprId],
+        fake_reads: &[(ExprId, FakeReadCause, HirId)],
+        scope: TempLifetime,
+        mut block: BasicBlock,
+    ) -> BlockAnd<IndexVec<FieldIdx, Operand<'tcx>>> {
+        // Convert the closure fake reads, if any, from `ExprRef` to mir `Place`
+        // and push the fake reads.
+        // This must come before creating the operands. This is required in case
+        // there is a fake read and a borrow of the same path, since otherwise the
+        // fake read might interfere with the borrow. Consider an example like this
+        // one:
+        // ```
+        // let mut x = 0;
+        // let c = || {
+        //     &mut x; // mutable borrow of `x`
+        //     match x { _ => () } // fake read of `x`
+        // };
+        // ```
+        //
+        for (thir_place, cause, hir_id) in fake_reads.into_iter() {
+            let place_builder = unpack!(block = self.as_place_builder(block, *thir_place));
+
+            if let Some(mir_place) = place_builder.try_to_place(self) {
+                self.cfg.push_fake_read(
+                    block,
+                    self.source_info(self.tcx.hir_span(*hir_id)),
+                    *cause,
+                    mir_place,
+                );
+            }
+        }
+
+        // see (*) above
+        let operands = upvars
+            .into_iter()
+            .copied()
+            .map(|upvar| {
+                let upvar_expr = &self.thir[upvar];
+                match Category::of(&upvar_expr.kind) {
+                    // Use as_place to avoid creating a temporary when
+                    // moving a variable into a closure, so that
+                    // borrowck knows which variables to mark as being
+                    // used as mut. This is OK here because the upvar
+                    // expressions have no side effects and act on
+                    // disjoint places.
+                    // This occurs when capturing by copy/move, while
+                    // by reference captures use as_operand
+                    Some(Category::Place) => {
+                        let place = unpack!(block = self.as_place(block, upvar));
+                        self.consume_by_copy_or_move(place)
+                    }
+                    _ => {
+                        // Turn mutable borrow captures into unique
+                        // borrow captures when capturing an immutable
+                        // variable. This is sound because the mutation
+                        // that caused the capture will cause an error.
+                        match upvar_expr.kind {
+                            ExprKind::Borrow {
+                                borrow_kind: BorrowKind::Mut { kind: MutBorrowKind::Default },
+                                arg,
+                            } => unpack!(
+                                block = self.limit_capture_mutability(
+                                    upvar_expr.span,
+                                    upvar_expr.ty,
+                                    scope.temp_lifetime,
+                                    block,
+                                    arg,
+                                )
+                            ),
+                            _ => {
+                                unpack!(
+                                    block = self.as_operand(
+                                        block,
+                                        scope,
+                                        upvar,
+                                        LocalInfo::Boring,
+                                        NeedsTemporary::Maybe
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            })
+            .collect();
+        block.and(operands)
     }
 
     pub(crate) fn build_binary_op(

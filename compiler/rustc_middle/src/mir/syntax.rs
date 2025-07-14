@@ -1555,6 +1555,7 @@ pub enum AggregateKind<'tcx> {
     Closure(DefId, GenericArgsRef<'tcx>),
     Coroutine(DefId, GenericArgsRef<'tcx>),
     CoroutineClosure(DefId, GenericArgsRef<'tcx>),
+    Init(DefId, GenericArgsRef<'tcx>),
 
     /// Construct a raw pointer from the data pointer and metadata.
     ///

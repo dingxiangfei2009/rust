@@ -706,7 +706,40 @@ impl<'tcx> ThirBuildCx<'tcx> {
                 }
             },
 
-            hir::ExprKind::InitBlock(_) | hir::ExprKind::InitTail(_) => {
+            hir::ExprKind::InitBlock(_) => {
+                let init_ty = self.typeck_results.expr_ty(expr);
+                let (def_id, args) = match init_ty.kind() {
+                    ty::Init(def_id, args) => (def_id, UpvarArgs::Closure(args)),
+                    _ => span_bug!(expr.span, "init block received non-init type {init_ty:?}"),
+                };
+                let def_id = def_id.expect_local();
+                let upvars = self
+                    .tcx
+                    .closure_captures(def_id)
+                    .iter()
+                    .zip_eq(args.upvar_tys())
+                    .map(|(captured, ty)| {
+                        let upvars = self.capture_upvar(expr, captured, ty);
+                        self.thir.exprs.push(upvars)
+                    })
+                    .collect();
+
+                // Convert the closure fake reads, if any, from hir `Place` to ExprRef
+                let fake_reads =
+                    if let Some(fake_reads) = self.typeck_results.closure_fake_reads.get(&def_id) {
+                        fake_reads
+                            .iter()
+                            .map(|(place, cause, hir_id)| {
+                                let expr = self.convert_captured_hir_place(expr, place.clone());
+                                (self.thir.exprs.push(expr), *cause, *hir_id)
+                            })
+                            .collect()
+                    } else {
+                        vec![]
+                    };
+                ExprKind::Init(Box::new(InitBlock { init_id: def_id, args, upvars, fake_reads }))
+            }
+            hir::ExprKind::InitTail(_) => {
                 todo!("pinit: please implement thir")
             }
 

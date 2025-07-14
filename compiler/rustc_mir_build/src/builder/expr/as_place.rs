@@ -551,6 +551,8 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
             | ExprKind::Tuple { .. }
             | ExprKind::Adt { .. }
             | ExprKind::Closure { .. }
+            | ExprKind::Init(_)
+            | ExprKind::InplaceInit(_)
             | ExprKind::Unary { .. }
             | ExprKind::Binary { .. }
             | ExprKind::LogicalOp { .. }
