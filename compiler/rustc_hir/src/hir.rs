@@ -3183,6 +3183,7 @@ pub struct ImplItem<'hir> {
     pub vis_span: Span,
     pub has_delayed_lints: bool,
     /// When we are in a trait impl, link to the trait-item's id.
+    /// **NOTE**: It is possible that the ID may point to a supertrait.
     pub trait_item_def_id: Option<DefId>,
 }
 

@@ -57,6 +57,7 @@ mod generics_of;
 mod item_bounds;
 mod predicates_of;
 mod resolve_bound_vars;
+mod supertraits;
 mod type_of;
 
 ///////////////////////////////////////////////////////////////////////////
@@ -79,7 +80,7 @@ pub(crate) fn provide(providers: &mut Providers) {
         predicates_of: predicates_of::predicates_of,
         explicit_predicates_of: predicates_of::explicit_predicates_of,
         explicit_super_predicates_of: predicates_of::explicit_super_predicates_of,
-        supertrait_auto_impls: predicates_of::supertrait_auto_impls,
+        supertrait_auto_impls: supertraits::supertrait_auto_impls,
         explicit_implied_predicates_of: predicates_of::explicit_implied_predicates_of,
         explicit_supertraits_containing_assoc_item:
             predicates_of::explicit_supertraits_containing_assoc_item,

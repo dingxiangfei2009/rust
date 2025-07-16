@@ -302,6 +302,8 @@ rustc_queries! {
     /// For opaque types, this returns and thus reveals the hidden type! If you
     /// want to detect cycle errors use `type_of_opaque` instead.
     ///
+    /// This returns the self type on trait `impl`s.
+    ///
     /// To clarify, for type definitions, this does *not* return the "type of a type"
     /// (aka *kind* or *sort*) in the type-theoretical sense! It merely returns
     /// the type primarily *associated with* it.
@@ -1593,7 +1595,7 @@ rustc_queries! {
     }
 
     /// Return all `impl` blocks in the current crate.
-    query all_local_trait_impls(_: ()) -> &'tcx rustc_data_structures::fx::FxIndexMap<DefId, Vec<LocalDefId>> {
+    query all_local_trait_impls(_: ()) -> &'tcx FxIndexMap<DefId, Vec<LocalDefId>> {
         desc { "finding local trait impls" }
     }
 

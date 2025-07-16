@@ -28,6 +28,7 @@ use rustc_hir::def::{self, CtorKind, DefKind, LifetimeRes, NonMacroAttrKind, Par
 use rustc_hir::def_id::{CRATE_DEF_ID, DefId, LOCAL_CRATE, LocalDefId};
 use rustc_hir::{MissingLifetimeKind, PrimTy, TraitCandidate};
 use rustc_middle::middle::resolve_bound_vars::Set1;
+use rustc_middle::ty::data_structures::IndexSet;
 use rustc_middle::ty::{DelegationFnSig, Visibility};
 use rustc_middle::{bug, span_bug};
 use rustc_session::config::{CrateType, ResolveDocLinks};
@@ -771,6 +772,9 @@ struct LateResolutionVisitor<'a, 'ast, 'ra, 'tcx> {
     /// Count the number of places a lifetime is used.
     lifetime_uses: FxHashMap<LocalDefId, LifetimeUseSet>,
 
+    /// Associated items to be resolved against supertrait items
+    supertrait_assoc_items_to_resolve: FxHashSet<NodeId>,
+
     current_subtrait_did: Option<LocalDefId>,
 }
 
@@ -1454,18 +1458,6 @@ impl<'ast, 'ra, 'tcx> Visitor<'ast> for LateResolutionVisitor<'_, 'ast, 'ra, 'tc
             self.resolve_anon_const(v, AnonConstKind::FieldDefaultValue);
         }
     }
-
-    #[instrument(level = "debug", skip(self))]
-    fn visit_param_bound(&mut self, bound: &'ast GenericBound, ctxt: BoundKind) {
-        if let BoundKind::SuperTraits { subtrait } = ctxt {
-            let prev_subtrait_did = self.current_subtrait_did;
-            self.current_subtrait_did = Some(subtrait);
-            visit::walk_param_bound(self, bound);
-            self.current_subtrait_did = prev_subtrait_did;
-        } else {
-            visit::walk_param_bound(self, bound);
-        }
-    }
 }
 
 impl<'a, 'ast, 'ra, 'tcx> LateResolutionVisitor<'a, 'ast, 'ra, 'tcx> {
@@ -1492,6 +1484,7 @@ impl<'a, 'ast, 'ra, 'tcx> LateResolutionVisitor<'a, 'ast, 'ra, 'tcx> {
             // errors at module scope should always be reported
             in_func_body: false,
             lifetime_uses: Default::default(),
+            supertrait_assoc_items_to_resolve: Default::default(),
             current_subtrait_did: None,
         }
     }
@@ -2697,12 +2690,10 @@ impl<'a, 'ast, 'ra, 'tcx> LateResolutionVisitor<'a, 'ast, 'ra, 'tcx> {
                             |this| {
                                 this.visit_generics(generics);
                                 debug!(?bounds);
-                                walk_list!(
-                                    this,
-                                    visit_param_bound,
-                                    bounds,
-                                    BoundKind::SuperTraits { subtrait: local_def_id }
-                                );
+                                let prev =
+                                    replace(&mut this.current_subtrait_did, Some(local_def_id));
+                                walk_list!(this, visit_param_bound, bounds, BoundKind::SuperTraits);
+                                this.current_subtrait_did = prev;
                                 this.resolve_trait_items(items);
                             },
                         );
@@ -3097,6 +3088,9 @@ impl<'a, 'ast, 'ra, 'tcx> LateResolutionVisitor<'a, 'ast, 'ra, 'tcx> {
 
         for item in trait_items {
             self.resolve_doc_links(&item.attrs, MaybeExported::Ok(item.id));
+            // NOTE: to implementors of supertrait item in implementable trait alias:
+            // we need to resolve items also against supertraits,
+            // in case the item name is a path
             match &item.kind {
                 AssocItemKind::Const(box ast::ConstItem {
                     generics,
@@ -3246,7 +3240,7 @@ impl<'a, 'ast, 'ra, 'tcx> LateResolutionVisitor<'a, 'ast, 'ra, 'tcx> {
                                 |this, trait_id| {
                                     this.resolve_doc_links(attrs, MaybeExported::Impl(trait_id));
 
-                                    let item_def_id = this.r.local_def_id(item_id);
+                                    let item_local_def_id = this.r.local_def_id(item_id);
 
                                     // Register the trait definitions from here.
                                     if let Some(trait_id) = trait_id {
@@ -3254,10 +3248,10 @@ impl<'a, 'ast, 'ra, 'tcx> LateResolutionVisitor<'a, 'ast, 'ra, 'tcx> {
                                             .trait_impls
                                             .entry(trait_id)
                                             .or_default()
-                                            .push(item_def_id);
+                                            .push(item_local_def_id);
                                     }
 
-                                    let item_def_id = item_def_id.to_def_id();
+                                    let item_def_id = item_local_def_id.to_def_id();
                                     let res = Res::SelfTyAlias {
                                         alias_to: item_def_id,
                                         forbid_generic: false,
@@ -3454,7 +3448,6 @@ impl<'a, 'ast, 'ra, 'tcx> LateResolutionVisitor<'a, 'ast, 'ra, 'tcx> {
     #[instrument(level = "debug", skip(self))]
     fn collect_supertrait_defs(&mut self, subtrait: LocalDefId, supertrait_ref: &TraitRef) {
         let subtrait_module = self.r.expect_module(subtrait.to_def_id());
-        let mut subtrait_module_supertraits = subtrait_module.supertraits.borrow_mut();
 
         let supertrait_path: Vec<_> = Segment::from_path(&supertrait_ref.path);
         let res = self.smart_resolve_path_fragment(
@@ -3468,17 +3461,28 @@ impl<'a, 'ast, 'ra, 'tcx> LateResolutionVisitor<'a, 'ast, 'ra, 'tcx> {
 
         if let Some(did) = res.expect_full_res().opt_def_id()
             && did != subtrait.to_def_id()
-            && subtrait_module_supertraits.insert(did)
-            && let Some(module) = self.r.get_module(did)
+            && self.r.get_module(did).is_some()
+            && self.r.module_supertraits.entry(subtrait).or_default().borrow_mut().insert(did)
         {
-            let module_supertraits = self.r.supertraits(module).borrow();
-            let all_supertraits = module_supertraits.iter().copied().chain([module.def_id()]);
-            let resolver_module_supertraits =
-                self.r.module_supertraits.entry(subtrait).or_default();
-            // These are the supertraits that come into scope in the future, too
-            for supertrait in all_supertraits {
-                resolver_module_supertraits.insert(supertrait);
-                subtrait_module_supertraits.insert(supertrait);
+            if let Some(local_did) = did.as_local() {
+                if let Some(supertraits) = self.r.module_supertraits.get(&local_did) {
+                    let supertraits: Vec<_> = supertraits.borrow().iter().copied().collect();
+                    for supertrait in supertraits {
+                        self.r
+                            .module_supertraits
+                            .entry(subtrait)
+                            .or_default()
+                            .borrow_mut()
+                            .insert(supertrait);
+                    }
+                }
+            } else {
+                self.r
+                    .module_supertraits
+                    .entry(subtrait)
+                    .or_default()
+                    .borrow_mut()
+                    .extend(self.r.tcx.module_supertraits(did).iter().copied());
             }
         }
     }
@@ -3510,10 +3514,21 @@ impl<'a, 'ast, 'ra, 'tcx> LateResolutionVisitor<'a, 'ast, 'ra, 'tcx> {
             // and we need to resolve it against all of them
             // to reject ambiguity.
 
-            for &supertrait in &*module.supertraits.borrow() {
+            let supertraits = if let Some(local_did) = module.def_id().as_local()
+                && let Some(supertraits) = self.r.module_supertraits.get(&local_did)
+            {
+                supertraits.borrow().iter().copied().collect()
+            } else {
+                self.r.tcx.module_supertraits(module.def_id()).to_vec()
+            };
+            for supertrait in supertraits {
                 let Some(supertrait_mod) = self.r.get_module(supertrait) else { continue };
-                if let Some(supertrait_binding) =
-                    self.r.resolution(supertrait_mod, key).try_borrow().ok().and_then(|r| r.binding)
+                if let Some(supertrait_binding) = self
+                    .r
+                    .resolution(supertrait_mod, key)
+                    .try_borrow()
+                    .ok()
+                    .and_then(|r| r.best_binding())
                 {
                     if let Some(another_binding) = binding {
                         self.report_error(

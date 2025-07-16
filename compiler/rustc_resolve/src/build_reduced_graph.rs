@@ -191,9 +191,6 @@ impl<'ra, 'tcx> Resolver<'ra, 'tcx> {
             let parent_scope = ParentScope::module(module, self);
             self.build_reduced_graph_for_external_crate_res(child, parent_scope)
         }
-        // Populate the supertrait `DefId`s if the module is allowed
-        // to refer to their associated items.
-        module.supertraits.borrow_mut().extend(self.tcx.module_supertraits(module.def_id()));
     }
 
     /// Builds the reduced graph for a single item in an external crate.

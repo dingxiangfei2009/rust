@@ -1178,6 +1178,14 @@ pub(crate) struct CoercePointeeNoField {
 }
 
 #[derive(Diagnostic)]
+#[diag(hir_analysis_auto_impl_supertrait_is_not_marker, code = E0714)]
+pub(crate) struct AutoImplSupertraitIsNotMarker {
+    #[primary_span]
+    pub span: Span,
+    pub supertrait: Symbol,
+}
+
+#[derive(Diagnostic)]
 #[diag(hir_analysis_inherent_ty_outside_relevant, code = E0390)]
 #[help]
 pub(crate) struct InherentTyOutsideRelevant {

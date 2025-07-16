@@ -15,7 +15,6 @@
 
 pub use rustc_ast_ir::visit::VisitorResult;
 pub use rustc_ast_ir::{try_visit, visit_opt, walk_list, walk_visitable_list};
-use rustc_span::def_id::LocalDefId;
 use rustc_span::source_map::Spanned;
 use rustc_span::{Ident, Span};
 use thin_vec::ThinVec;
@@ -53,7 +52,7 @@ pub enum BoundKind {
 
     /// Super traits of a trait.
     /// E.g., `trait A: B`
-    SuperTraits { subtrait: LocalDefId },
+    SuperTraits,
 }
 impl BoundKind {
     pub fn descr(self) -> &'static str {

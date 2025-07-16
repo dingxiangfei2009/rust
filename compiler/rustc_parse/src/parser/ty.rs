@@ -532,7 +532,7 @@ impl<'a> Parser<'a> {
     ) -> PResult<'a, TyKind> {
         if plus {
             self.eat_plus(); // `+`, or `+=` gets split and `+` is discarded
-            bounds.append(&mut self.parse_generic_bounds(false)?);
+            bounds.append(&mut self.parse_generic_bounds()?);
         }
         Ok(TyKind::TraitObject(bounds, TraitObjectSyntax::None))
     }
@@ -816,7 +816,7 @@ impl<'a> Parser<'a> {
         }
 
         // Always parse bounds greedily for better error recovery.
-        let bounds = self.parse_generic_bounds(false)?;
+        let bounds = self.parse_generic_bounds()?;
 
         *impl_dyn_multi = bounds.len() > 1 || self.prev_token == TokenKind::Plus;
 
@@ -875,7 +875,7 @@ impl<'a> Parser<'a> {
         let syntax = TraitObjectSyntax::Dyn;
 
         // Always parse bounds greedily for better error recovery.
-        let bounds = self.parse_generic_bounds(false)?;
+        let bounds = self.parse_generic_bounds()?;
         *impl_dyn_multi = bounds.len() > 1 || self.prev_token == TokenKind::Plus;
         Ok(TyKind::TraitObject(bounds, syntax))
     }
@@ -906,11 +906,15 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub(super) fn parse_generic_bounds(
-        &mut self,
-        in_supertrait_context: bool,
-    ) -> PResult<'a, GenericBounds> {
-        self.parse_generic_bounds_common(AllowPlus::Yes, in_supertrait_context)
+    /// This parses generic bounds non-terminals without supertrait tags.
+    pub(super) fn parse_generic_bounds(&mut self) -> PResult<'a, GenericBounds> {
+        self.parse_generic_bounds_common(AllowPlus::Yes, false)
+    }
+
+    /// This parses generic bounds non-terminals with supertrait tags,
+    /// especially whether `auto impl`s are attached to the bounds.
+    pub(super) fn parse_superbounds(&mut self) -> PResult<'a, GenericBounds> {
+        self.parse_generic_bounds_common(AllowPlus::Yes, true)
     }
 
     /// Parses bounds of a type parameter `BOUND + BOUND + ...`, possibly with trailing `+`.

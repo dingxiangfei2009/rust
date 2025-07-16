@@ -585,9 +585,6 @@ struct ModuleData<'ra> {
     /// Used to memoize the traits in this module for faster searches through all traits in scope.
     traits: RefCell<Option<Box<[(Ident, NameBinding<'ra>, Option<Module<'ra>>)]>>>,
 
-    /// In case supertraits are relevant in the module, the DefIds are collected, too.
-    supertraits: RefCell<IndexSet<DefId>>,
-
     /// Span of the module itself. Used for error reporting.
     span: Span,
 
@@ -635,7 +632,6 @@ impl<'ra> ModuleData<'ra> {
             glob_importers: RefCell::new(Vec::new()),
             globs: RefCell::new(Vec::new()),
             traits: RefCell::new(None),
-            supertraits: RefCell::new(Default::default()),
             span,
             expansion,
         }
@@ -1222,7 +1218,9 @@ pub struct Resolver<'ra, 'tcx> {
     // that were encountered during resolution. These names are used to generate item names
     // for APITs, so we don't want to leak details of resolution into these names.
     impl_trait_names: FxHashMap<NodeId, Symbol>,
-    module_supertraits: IndexMap<LocalDefId, IndexSet<DefId>>,
+
+    /// Set of supertraits collected from local modules
+    module_supertraits: IndexMap<LocalDefId, RefCell<IndexSet<DefId>>>,
 }
 
 /// This provides memory for the rest of the crate. The `'ra` lifetime that is
@@ -1702,7 +1700,7 @@ impl<'ra, 'tcx> Resolver<'ra, 'tcx> {
             module_supertraits: self
                 .module_supertraits
                 .into_iter()
-                .map(|(did, supertraits)| (did, supertraits.into_iter().collect()))
+                .map(|(did, supertraits)| (did, supertraits.into_inner().into_iter().collect()))
                 .collect(),
             glob_map,
             maybe_unused_trait_imports,
@@ -1915,14 +1913,6 @@ impl<'ra, 'tcx> Resolver<'ra, 'tcx> {
             self.build_reduced_graph_external(module);
         }
         &module.0.0.lazy_resolutions
-    }
-
-    fn supertraits(&mut self, module: Module<'ra>) -> &'ra RefCell<IndexSet<DefId>> {
-        if module.populate_on_access.get() {
-            module.populate_on_access.set(false);
-            self.build_reduced_graph_external(module);
-        }
-        &module.0.0.supertraits
     }
 
     fn resolution(
