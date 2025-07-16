@@ -55,6 +55,7 @@
         (corsl_0, corsl_0),
         (corsl_1, corsl_1),
     },
+    relocated_upvars: {},
 } */
 
 fn b::{closure#0}(_1: Pin<&mut {async fn body of b()}>, _2: &mut Context<'_>) -> Poll<()> {
