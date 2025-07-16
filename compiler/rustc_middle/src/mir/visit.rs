@@ -767,6 +767,9 @@ macro_rules! make_mir_visitor {
                             AggregateKind::Coroutine(_, coroutine_args) => {
                                 self.visit_args(coroutine_args, location);
                             }
+                            AggregateKind::Init(_, init_args) => {
+                                self.visit_args(init_args, location);
+                            }
                             AggregateKind::CoroutineClosure(_, coroutine_closure_args) => {
                                 self.visit_args(coroutine_closure_args, location);
                             }

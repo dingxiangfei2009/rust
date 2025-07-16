@@ -156,7 +156,7 @@ pub fn walk_expr<'thir, 'tcx: 'thir, V: Visitor<'thir, 'tcx>>(
             fake_reads: _,
         }) => {}
         Init(_) => {}
-        InplaceInit(ref kind) => match &**kind {
+        InplaceInit { ref kind, init: _ } => match &**kind {
             &InitKind::Free(expr_id) => visitor.visit_expr(&visitor.thir()[expr_id]),
             InitKind::Array(expr_ids) => {
                 for &eid in expr_ids {

@@ -1487,7 +1487,8 @@ impl<'a, 'tcx> MirBorrowckCtxt<'a, '_, 'tcx> {
                 match **aggregate_kind {
                     AggregateKind::Closure(def_id, _)
                     | AggregateKind::CoroutineClosure(def_id, _)
-                    | AggregateKind::Coroutine(def_id, _) => {
+                    | AggregateKind::Coroutine(def_id, _)
+                    | AggregateKind::Init(def_id, _) => {
                         let def_id = def_id.expect_local();
                         let used_mut_upvars = self.root_cx.used_mut_upvars(def_id);
                         debug!("{:?} used_mut_upvars={:?}", def_id, used_mut_upvars);

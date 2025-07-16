@@ -541,7 +541,11 @@ pub enum ExprKind<'tcx> {
     /// A `init` block
     Init(Box<InitBlock<'tcx>>),
     /// An in-place initialisation imperative
-    InplaceInit(Box<InitKind>),
+    InplaceInit {
+        kind: Box<InitKind>,
+        /// Function to perform in-place init
+        init: ExprId,
+    },
     /// A literal.
     Literal {
         lit: hir::Lit,

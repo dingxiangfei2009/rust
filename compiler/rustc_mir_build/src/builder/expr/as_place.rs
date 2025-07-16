@@ -552,7 +552,7 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
             | ExprKind::Adt { .. }
             | ExprKind::Closure { .. }
             | ExprKind::Init(_)
-            | ExprKind::InplaceInit(_)
+            | ExprKind::InplaceInit { .. }
             | ExprKind::Unary { .. }
             | ExprKind::Binary { .. }
             | ExprKind::LogicalOp { .. }

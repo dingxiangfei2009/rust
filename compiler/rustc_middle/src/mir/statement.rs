@@ -730,6 +730,7 @@ impl<'tcx> Rvalue<'tcx> {
                 AggregateKind::Adt(did, _, args, _, _) => tcx.type_of(did).instantiate(tcx, args),
                 AggregateKind::Closure(did, args) => Ty::new_closure(tcx, did, args),
                 AggregateKind::Coroutine(did, args) => Ty::new_coroutine(tcx, did, args),
+                AggregateKind::Init(did, args) => Ty::new_init(tcx, did, args),
                 AggregateKind::CoroutineClosure(did, args) => {
                     Ty::new_coroutine_closure(tcx, did, args)
                 }

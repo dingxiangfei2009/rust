@@ -617,6 +617,7 @@ impl<'tcx> Visitor<'tcx> for PlaceCollector<'_, 'tcx> {
                     | AggregateKind::Array(_)
                     | AggregateKind::Tuple
                     | AggregateKind::Closure(..)
+                    | AggregateKind::Init(..)
                     | AggregateKind::Coroutine(..)
                     | AggregateKind::CoroutineClosure(..) => {}
                 }

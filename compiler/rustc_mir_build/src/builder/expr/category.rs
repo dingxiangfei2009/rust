@@ -63,7 +63,7 @@ impl Category {
             | ExprKind::Tuple { .. }
             | ExprKind::Closure { .. }
             | ExprKind::Init(_)
-            | ExprKind::InplaceInit(_)
+            | ExprKind::InplaceInit { .. }
             | ExprKind::Unary { .. }
             | ExprKind::Binary { .. }
             | ExprKind::Box { .. }

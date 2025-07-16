@@ -218,6 +218,17 @@ struct Builder<'a, 'tcx> {
     /// Collects additional coverage information during MIR building.
     /// Only present if coverage is enabled and this function is eligible.
     coverage_info: Option<coverageinfo::CoverageInfoBuilder>,
+
+    /// Collects the current in-place initialization context,
+    /// including the implicit target slot and the initialization state of
+    /// aggregate fields.
+    inplace_init_context: Option<InplaceInitCtxt>,
+}
+
+/// This context collects the in-place initialization states,
+/// including the target slot and the initialization state of aggregate fields.
+struct InplaceInitCtxt {
+    current_slot: Local,
 }
 
 type CaptureMap<'tcx> = SortedIndexMultiMap<usize, ItemLocalId, Capture<'tcx>>;
@@ -780,6 +791,7 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
             var_debug_info: vec![],
             lint_level_roots_cache: GrowableBitSet::new_empty(),
             coverage_info: coverageinfo::CoverageInfoBuilder::new_if_enabled(tcx, def),
+            inplace_init_context: None,
         };
 
         assert_eq!(builder.cfg.start_new_block(), START_BLOCK);

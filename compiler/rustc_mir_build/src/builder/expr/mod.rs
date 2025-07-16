@@ -66,5 +66,6 @@ pub(crate) mod as_place;
 mod as_rvalue;
 mod as_temp;
 pub(crate) mod category;
+mod init;
 mod into;
 mod stmt;

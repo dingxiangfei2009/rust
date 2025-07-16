@@ -332,6 +332,7 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
             }
             ExprKind::Init(box InitBlock { init_id, args, ref upvars, ref fake_reads }) => {
                 let operands = unpack!(block = this.build_upvars(upvars, fake_reads, scope, block));
+                let UpvarArgs::Closure(args) = args else { bug!() };
                 let result = Box::new(AggregateKind::Init(init_id.to_def_id(), args));
                 block.and(Rvalue::Aggregate(result, operands))
             }
@@ -385,6 +386,7 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
             | ExprKind::LoopMatch { .. }
             | ExprKind::LogicalOp { .. }
             | ExprKind::Call { .. }
+            | ExprKind::InplaceInit { .. }
             | ExprKind::Field { .. }
             | ExprKind::Let { .. }
             | ExprKind::Deref { .. }

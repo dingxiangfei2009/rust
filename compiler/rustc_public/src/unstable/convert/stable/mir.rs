@@ -649,6 +649,7 @@ impl<'tcx> Stable<'tcx> for mir::AggregateKind<'tcx> {
                 tables.closure_def(*def_id),
                 generic_arg.stable(tables, cx),
             ),
+            mir::AggregateKind::Init(_def_id, _generic_arg) => todo!("pinit: sorry, smir support"),
             mir::AggregateKind::Coroutine(def_id, generic_arg) => {
                 crate::mir::AggregateKind::Coroutine(
                     tables.coroutine_def(*def_id),

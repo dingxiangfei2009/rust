@@ -2148,7 +2148,7 @@ impl<'a, 'tcx> TypeChecker<'a, 'tcx> {
                     Err(FieldAccessError::OutOfRange { field_count: variant.fields.len() })
                 }
             }
-            AggregateKind::Closure(_, args) => {
+            AggregateKind::Closure(_, args) | AggregateKind::Init(_, args) => {
                 match args.as_closure().upvar_tys().get(field_index.as_usize()) {
                     Some(ty) => Ok(*ty),
                     None => Err(FieldAccessError::OutOfRange {
@@ -2208,6 +2208,7 @@ impl<'a, 'tcx> TypeChecker<'a, 'tcx> {
                 AggregateKind::Tuple => None,
                 AggregateKind::Closure(_, _) => None,
                 AggregateKind::Coroutine(_, _) => None,
+                AggregateKind::Init(_, _) => None,
                 AggregateKind::CoroutineClosure(_, _) => None,
                 AggregateKind::RawPtr(_, _) => None,
             },
@@ -2438,6 +2439,7 @@ impl<'a, 'tcx> TypeChecker<'a, 'tcx> {
             // these extra requirements are basically like where
             // clauses on the struct.
             AggregateKind::Closure(def_id, args)
+            | AggregateKind::Init(def_id, args)
             | AggregateKind::CoroutineClosure(def_id, args)
             | AggregateKind::Coroutine(def_id, args) => (
                 def_id,

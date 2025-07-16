@@ -413,6 +413,9 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
                 this.diverge_from(block);
                 success.unit()
             }
+            ExprKind::InplaceInit { ref kind, init: _ } => {
+                this.inplace_init(destination, block, expr, kind)
+            }
             ExprKind::ByUse { expr, span } => {
                 let place = unpack!(block = this.as_place(block, expr));
                 let ty = place.ty(&this.local_decls, this.tcx).ty;
@@ -788,6 +791,7 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
             | ExprKind::Tuple { .. }
             | ExprKind::Closure { .. }
             | ExprKind::ConstBlock { .. }
+            | ExprKind::Init(..)
             | ExprKind::Literal { .. }
             | ExprKind::NamedConst { .. }
             | ExprKind::NonHirLiteral { .. }
