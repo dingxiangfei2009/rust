@@ -11,7 +11,7 @@ use tracing::debug;
 use crate::query::LocalCrate;
 use crate::traits::specialization_graph;
 use crate::ty::fast_reject::{self, SimplifiedType, TreatParams};
-use crate::ty::{Ident, Ty, TyCtxt};
+use crate::ty::{Ident, TraitRef, Ty, TyCtxt};
 
 /// A trait's definition with type information.
 #[derive(HashStable, Encodable, Decodable)]
@@ -102,6 +102,13 @@ pub struct TraitImpls {
     blanket_impls: Vec<DefId>,
     /// Impls indexed by their simplified self type, for fast lookup.
     non_blanket_impls: FxIndexMap<SimplifiedType, Vec<DefId>>,
+}
+
+#[derive(Debug, HashStable)]
+pub struct SupertraitImplicitImpls<'tcx> {
+    pub subtrait_impl_did: DefId,
+    pub supertrait_ref: TraitRef<'tcx>,
+    pub impl_item_dids: Vec<DefId>,
 }
 
 impl TraitImpls {
@@ -225,6 +232,7 @@ pub(super) fn trait_impls_of_provider(tcx: TyCtxt<'_>, trait_id: DefId) -> Trait
 
         let impl_self_ty = tcx.type_of(impl_def_id).instantiate_identity();
 
+        // FIXME: elaborate the trait impl to include supertraits and `auto impl` supertraits
         if let Some(simplified_self_ty) =
             fast_reject::simplify_type(tcx, impl_self_ty, TreatParams::InstantiateWithInfer)
         {

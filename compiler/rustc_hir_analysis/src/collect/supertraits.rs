@@ -7,7 +7,8 @@ use rustc_data_structures::fx::{FxHashMap, FxIndexMap, FxIndexSet};
 use rustc_data_structures::unord::UnordMap;
 use rustc_hir as hir;
 use rustc_hir::def::DefKind;
-use rustc_hir::def_id::{DefId, LocalDefId};
+use rustc_hir::def_id::{DefId, LOCAL_CRATE, LocalDefId};
+use rustc_hir::definitions::DisambiguatorState;
 use rustc_middle::ty::{
     self, EarlyBinder, GenericPredicates, ImplTraitInTraitData, Ty, TyCtxt, TypeVisitable,
     TypeVisitableExt, TypeVisitor, Upcast,
@@ -138,12 +139,21 @@ fn supertraits_in_local_subtrait_impls_inner<'tcx>(
                     &mut supertrait_refs,
                     &mut marker_supertrait_refs,
                 );
+                let type_of = tcx.type_of(impl_did);
                 for super_tref in supertrait_refs {
-                    let Some(predicates) = mentioned_supertrait_dids.get(&super_tref.def_id) else {
+                    let Some(impl_items) = mentioned_supertrait_dids.get(&super_tref.def_id) else {
                         continue;
                     };
-                    for &predicate in predicates {
-                        todo!()
+                    let feed = tcx.create_def(
+                        impl_did,
+                        None,
+                        DefKind::Impl { of_trait: true },
+                        None,
+                        &mut DisambiguatorState::new(),
+                    );
+                    feed.param_env(tcx.param_env(impl_did));
+                    for &item in impl_items {
+                        let local_did = item.id.owner_id.def_id;
                     }
                 }
             }

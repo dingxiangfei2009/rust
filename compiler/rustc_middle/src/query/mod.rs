@@ -1045,6 +1045,7 @@ rustc_queries! {
         desc { |tcx| "collecting associated items or fields of `{}`", tcx.def_path_str(key) }
         cache_on_disk_if { key.is_local() }
         separate_provide_extern
+        feedable
     }
 
     /// Maps from a trait/impl item to the trait/impl item "descriptor".
@@ -1101,6 +1102,7 @@ rustc_queries! {
         desc { |tcx| "computing trait implemented by `{}`", tcx.def_path_str(impl_id) }
         cache_on_disk_if { impl_id.is_local() }
         separate_provide_extern
+        feedable
     }
 
     /// Given an `impl_def_id`, return true if the self type is guaranteed to be unsized due
