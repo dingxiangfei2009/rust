@@ -184,10 +184,17 @@ pub enum InstanceKind<'tcx> {
     /// `Ty` here is `async_drop_in_place<T>::{closure}` coroutine type, not just `T`
     AsyncDropGlue(DefId, Ty<'tcx>),
 
-    /// `core::init::PinInit::<T>::pin_init`
+    /// `core::init::Init::<T>::init` implementation of a `init` block
     ///
-    /// `Ty` here is `T`
+    /// `Ty` here is the block type `ty::Init(..)`
+    /// and `DefId` is the body of the `init` block
     Init(DefId, Ty<'tcx>),
+
+    /// `core::init::Init::<T>::layout` implementation of a `init` block
+    ///
+    /// `Ty` here is the block type `ty::Init(..)`
+    /// and `DefId` is the body of the `init` block
+    InitLayout(DefId, Ty<'tcx>),
 }
 
 impl<'tcx> Instance<'tcx> {
@@ -262,6 +269,7 @@ impl<'tcx> InstanceKind<'tcx> {
                 receiver_by_ref: _,
             }
             | InstanceKind::Init(def_id, _)
+            | InstanceKind::InitLayout(def_id, _)
             | InstanceKind::DropGlue(def_id, _)
             | InstanceKind::CloneShim(def_id, _)
             | InstanceKind::FnPtrAddrShim(def_id, _)
@@ -280,6 +288,7 @@ impl<'tcx> InstanceKind<'tcx> {
             | InstanceKind::AsyncDropGlue(def_id, _)
             | InstanceKind::FutureDropPollShim(def_id, ..)
             | InstanceKind::Init(def_id, _)
+            | InstanceKind::InitLayout(def_id, _)
             | InstanceKind::ThreadLocalShim(def_id) => Some(def_id),
             InstanceKind::VTableShim(..)
             | InstanceKind::ReifyShim(..)
@@ -356,6 +365,7 @@ impl<'tcx> InstanceKind<'tcx> {
             | InstanceKind::DropGlue(..)
             | InstanceKind::Item(_)
             | InstanceKind::Init(..)
+            | InstanceKind::InitLayout(..)
             | InstanceKind::Intrinsic(..)
             | InstanceKind::ReifyShim(..)
             | InstanceKind::Virtual(..)
@@ -435,6 +445,7 @@ pub fn fmt_instance(
             write!(f, " - dropshim({proxy_ty}-{impl_ty})")
         }
         InstanceKind::Init(_, ty) => write!(f, " - init({ty})"),
+        InstanceKind::InitLayout(_, ty) => write!(f, " - init_layout({ty})"),
         InstanceKind::AsyncDropGlue(_, ty) => write!(f, " - shim({ty})"),
         InstanceKind::AsyncDropGlueCtorShim(_, ty) => write!(f, " - shim(Some({ty}))"),
     }

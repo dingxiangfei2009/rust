@@ -336,6 +336,12 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
                 let result = Box::new(AggregateKind::Init(init_id.to_def_id(), args));
                 block.and(Rvalue::Aggregate(result, operands))
             }
+            ExprKind::InplaceInit(box InitKind::Array(ref exprs)) => {
+                todo!("pinit: sorry")
+            }
+            ExprKind::InplaceInit(box InitKind::Free(ref expr)) => {
+                todo!("pinit: sorry")
+            }
             ExprKind::Assign { .. } | ExprKind::AssignOp { .. } => {
                 block = this.stmt_expr(block, expr_id, None).into_block();
                 block.and(Rvalue::Use(Operand::Constant(Box::new(ConstOperand {

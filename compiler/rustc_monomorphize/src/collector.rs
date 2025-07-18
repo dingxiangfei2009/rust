@@ -954,6 +954,7 @@ fn visit_instance_use<'tcx>(
             }
         }
         ty::InstanceKind::Init(_, _)
+        | ty::InstanceKind::InitLayout(_, _)
         | ty::InstanceKind::DropGlue(_, Some(_))
         | ty::InstanceKind::FutureDropPollShim(..)
         | ty::InstanceKind::AsyncDropGlue(_, _)

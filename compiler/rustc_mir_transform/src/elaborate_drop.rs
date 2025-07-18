@@ -1277,7 +1277,9 @@ where
     fn open_drop(&mut self) -> BasicBlock {
         let ty = self.place_ty(self.place);
         match ty.kind() {
-            ty::Closure(_, args) => self.open_drop_for_tuple(args.as_closure().upvar_tys()),
+            ty::Closure(_, args) | ty::Init(_, args) => {
+                self.open_drop_for_tuple(args.as_closure().upvar_tys())
+            }
             ty::CoroutineClosure(_, args) => {
                 self.open_drop_for_tuple(args.as_coroutine_closure().upvar_tys())
             }

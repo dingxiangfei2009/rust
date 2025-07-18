@@ -642,6 +642,7 @@ fn characteristic_def_id_of_mono_item<'tcx>(
                 | ty::InstanceKind::ThreadLocalShim(..)
                 | ty::InstanceKind::FnPtrAddrShim(..)
                 | ty::InstanceKind::Init(..)
+                | ty::InstanceKind::InitLayout(..)
                 | ty::InstanceKind::FutureDropPollShim(..)
                 | ty::InstanceKind::AsyncDropGlue(..)
                 | ty::InstanceKind::AsyncDropGlueCtorShim(..) => return None,
@@ -795,6 +796,8 @@ fn mono_item_visibility<'tcx>(
 
     let def_id = match instance.def {
         InstanceKind::Item(def_id)
+        | InstanceKind::Init(def_id, _)
+        | InstanceKind::InitLayout(def_id, _)
         | InstanceKind::DropGlue(def_id, Some(_))
         | InstanceKind::FutureDropPollShim(def_id, _, _)
         | InstanceKind::AsyncDropGlue(def_id, _)
@@ -811,7 +814,6 @@ fn mono_item_visibility<'tcx>(
         | InstanceKind::FnPtrShim(..)
         | InstanceKind::Virtual(..)
         | InstanceKind::Intrinsic(..)
-        | InstanceKind::Init(_, _)
         | InstanceKind::ClosureOnceShim { .. }
         | InstanceKind::ConstructCoroutineInClosureShim { .. }
         | InstanceKind::DropGlue(..)

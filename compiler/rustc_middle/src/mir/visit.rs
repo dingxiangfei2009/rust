@@ -359,6 +359,7 @@ macro_rules! make_mir_visitor {
                         | ty::InstanceKind::DropGlue(_def_id, Some(ty))
                         | ty::InstanceKind::CloneShim(_def_id, ty)
                         | ty::InstanceKind::Init(_def_id, ty)
+                        | ty::InstanceKind::InitLayout(_def_id, ty)
                         | ty::InstanceKind::FnPtrAddrShim(_def_id, ty)
                         | ty::InstanceKind::AsyncDropGlue(_def_id, ty)
                         | ty::InstanceKind::AsyncDropGlueCtorShim(_def_id, ty) => {

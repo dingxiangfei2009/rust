@@ -580,6 +580,7 @@ impl<'tcx, M: Machine<'tcx>> InterpCx<'tcx, M> {
             | ty::InstanceKind::AsyncDropGlue(..)
             | ty::InstanceKind::FutureDropPollShim(..)
             | ty::InstanceKind::Init(..)
+            | ty::InstanceKind::InitLayout(..)
             | ty::InstanceKind::Item(_) => {
                 // We need MIR for this fn.
                 // Note that this can be an intrinsic, if we are executing its fallback body.

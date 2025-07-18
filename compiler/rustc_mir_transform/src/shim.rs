@@ -26,6 +26,7 @@ use crate::{
 };
 
 mod async_destructor_ctor;
+mod init;
 
 pub(super) fn provide(providers: &mut Providers) {
     providers.mir_shims = make_shim;
@@ -165,7 +166,10 @@ fn make_shim<'tcx>(tcx: TyCtxt<'tcx>, instance: ty::InstanceKind<'tcx>) -> Body<
         ty::InstanceKind::ThreadLocalShim(..) => build_thread_local_shim(tcx, instance),
         ty::InstanceKind::CloneShim(def_id, ty) => build_clone_shim(tcx, def_id, ty),
         ty::InstanceKind::FnPtrAddrShim(def_id, ty) => build_fn_ptr_addr_shim(tcx, def_id, ty),
-        ty::InstanceKind::Init(_, _) => todo!("dxf implement shim"),
+        ty::InstanceKind::Init(def_id, ty) => build_inplace_init(tcx, def_id, args),
+        ty::InstanceKind::InitLayout(def_id, ty) => {
+            build_inplace_init_layout_query(tcx, def_id, ty)
+        }
         ty::InstanceKind::FutureDropPollShim(def_id, proxy_ty, impl_ty) => {
             let mut body =
                 async_destructor_ctor::build_future_drop_poll_shim(tcx, def_id, proxy_ty, impl_ty);

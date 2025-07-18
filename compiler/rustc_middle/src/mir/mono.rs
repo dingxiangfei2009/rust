@@ -554,6 +554,7 @@ impl<'tcx> CodegenUnit<'tcx> {
                             | InstanceKind::AsyncDropGlue(..)
                             | InstanceKind::FutureDropPollShim(..)
                             | InstanceKind::Init(..)
+                            | InstanceKind::InitLayout(..)
                             | InstanceKind::AsyncDropGlueCtorShim(..) => None,
                         }
                     }
