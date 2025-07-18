@@ -54,6 +54,7 @@ use crate::traits::{EvaluateConstErr, ProjectionCacheKey, effects, sizedness_fas
 mod _match;
 mod candidate_assembly;
 mod confirmation;
+mod init;
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum IntercrateAmbiguityCause<'tcx> {
@@ -1990,6 +1991,7 @@ impl<'tcx> SelectionContext<'_, 'tcx> {
                 | AsyncFnKindHelperCandidate
                 | CoroutineCandidate
                 | InitCandidate
+                | ArrayUnsizeInitCandidate(..)
                 | TrivialInitCandidate
                 | FutureCandidate
                 | IteratorCandidate

@@ -6,6 +6,7 @@ use rustc_errors::ErrorGuaranteed;
 use rustc_hir::def_id::DefId;
 use rustc_macros::{HashStable, TypeVisitable};
 use rustc_query_system::cache::Cache;
+use smallvec::SmallVec;
 
 use self::EvaluationResult::*;
 use super::{SelectionError, SelectionResult};
@@ -132,6 +133,11 @@ pub enum SelectionCandidate<'tcx> {
     /// Implementation of the `Init` trait by the moving value into the target
     /// place.
     TrivialInitCandidate,
+
+    /// Implementation of the `Init` trait through implicit array unsizing
+    /// from a bound in the environment.
+    /// This candidate contains predicates of form `<_ as Init<[?; ?]>>`
+    ArrayUnsizeInitCandidate(SmallVec<[ty::PolyTraitPredicate<'tcx>; 2]>),
 
     /// Implementation of an `AsyncFn`-family trait by one of the anonymous types
     /// generated for an `async ||` expression.

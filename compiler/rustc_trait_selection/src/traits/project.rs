@@ -1257,6 +1257,9 @@ fn confirm_select_candidate<'cx, 'tcx>(
         ImplSource::Builtin(BuiltinImplSource::Misc | BuiltinImplSource::Trivial, data) => {
             let tcx = selcx.tcx();
             let trait_def_id = obligation.predicate.trait_def_id(tcx);
+            if tcx.is_lang_item(trait_def_id, LangItem::Init) {
+                return confirm_init_candidate(selcx, obligation, data);
+            }
             let progress = if tcx.is_lang_item(trait_def_id, LangItem::Coroutine) {
                 confirm_coroutine_candidate(selcx, obligation, data)
             } else if tcx.is_lang_item(trait_def_id, LangItem::Future) {
@@ -1265,8 +1268,6 @@ fn confirm_select_candidate<'cx, 'tcx>(
                 confirm_iterator_candidate(selcx, obligation, data)
             } else if tcx.is_lang_item(trait_def_id, LangItem::AsyncIterator) {
                 confirm_async_iterator_candidate(selcx, obligation, data)
-            } else if tcx.is_lang_item(trait_def_id, LangItem::Init) {
-                confirm_init_candidate(selcx, obligation, data)
             } else if selcx.tcx().fn_trait_kind_from_def_id(trait_def_id).is_some() {
                 if obligation.predicate.self_ty().is_closure()
                     || obligation.predicate.self_ty().is_coroutine_closure()
@@ -1679,39 +1680,174 @@ fn confirm_closure_candidate<'cx, 'tcx>(
 fn confirm_init_candidate<'cx, 'tcx>(
     selcx: &mut SelectionContext<'cx, 'tcx>,
     obligation: &ProjectionTermObligation<'tcx>,
-    nested: PredicateObligations<'tcx>,
-) -> Progress<'tcx> {
+    mut nested: PredicateObligations<'tcx>,
+) -> Result<Projected<'tcx>, ProjectionError<'tcx>> {
     let tcx = selcx.tcx();
     let self_ty = selcx.infcx.shallow_resolve(obligation.predicate.self_ty());
+    let span = obligation.cause.span;
     assert!(!self_ty.has_escaping_bound_vars());
-    match self_ty.kind() {
-        // A proper init block
-        ty::Init(_did, args) => {
-            let Normalized { value: sig, obligations } = normalize_with_depth(
-                selcx,
-                obligation.param_env,
-                obligation.cause.clone(),
-                obligation.recursion_depth + 1,
-                args.as_closure().sig(),
-            );
-            let &ty::Tuple(init_rets) = sig.output().skip_binder().kind() else {
-                debug!("failed to resolve return or error type of init block");
-                todo!()
-            };
-            let [ret_ty, err_ty] = **init_rets else { bug!() };
-            // This reads `<$self_ty as Init<$ret_ty>>::Error == $err_ty`
-            let predicate = sig.map_bound(|_| ty::ProjectionPredicate {
-                projection_term: ty::AliasTerm::new(
-                    tcx,
-                    tcx.require_lang_item(LangItem::InitError, obligation.cause.span),
-                    [self_ty, ret_ty],
-                ),
-                term: err_ty.into(),
-            });
+    let req_target_ty = selcx.infcx.shallow_resolve(obligation.predicate.args.type_at(1));
+    // A proper init block
+    if let ty::Init(_did, args) = self_ty.kind() {
+        let Normalized { value: sig, obligations } = normalize_with_depth(
+            selcx,
+            obligation.param_env,
+            obligation.cause.clone(),
+            obligation.recursion_depth + 1,
+            args.as_closure().sig(),
+        );
+        let &ty::Tuple(init_rets) = sig.output().skip_binder().kind() else {
+            return Ok(Projected::NoProgress(obligation.predicate.to_term(tcx)));
+        };
+        let [target_ty, err_ty] = **init_rets else {
+            bug!("expecting a 2-tuple in an init-block signature, got {init_rets:?}")
+        };
+        // Now the return type may be unsized.
+        // We will run a quick check, to make sure that unsizing on this specific `init` blcok
+        // is applicable.
+        let maybe_unsized_target = match (target_ty.kind(), req_target_ty.kind()) {
+            (&ty::Array(elem_ty, _), &ty::Slice(req_elem_ty)) => {
+                match selcx.infcx.at(&obligation.cause, obligation.param_env).eq(
+                    DefineOpaqueTypes::Yes,
+                    req_elem_ty,
+                    elem_ty,
+                ) {
+                    Ok(InferOk { value: (), obligations }) => {
+                        nested.extend(obligations);
+                        req_elem_ty
+                    }
+                    Err(e) => {
+                        debug!(?e, "failed to unify element type while unsizing array inits");
+                        Ty::new_error_with_message(
+                            tcx,
+                            span,
+                            format!("error while unifying element type of array with slice: {e:?}"),
+                        )
+                    }
+                }
+            }
+            (&ty::Adt(def, _args), &ty::Adt(req_def, _req_args)) if def.did() == req_def.did() => {
+                Ty::new_error_with_message(tcx, span, "pinit: sorry, ADT unsizing is unsupported")
+            }
+            _ => target_ty,
+        };
+        // This reads `<$self_ty as Init<$ret_ty>>::Error == $err_ty`
+        let predicate = sig.map_bound(|_| ty::ProjectionPredicate {
+            projection_term: ty::AliasTerm::new(
+                tcx,
+                tcx.require_lang_item(LangItem::InitError, span),
+                [self_ty, maybe_unsized_target],
+            ),
+            term: err_ty.into(),
+        });
+        return Ok(Projected::Progress(
             confirm_param_env_candidate(selcx, obligation, predicate, true)
                 .with_addl_obligations(nested)
-                .with_addl_obligations(obligations)
+                .with_addl_obligations(obligations),
+        ));
+    }
+
+    // Unsizing candidates
+    match req_target_ty.kind() {
+        &ty::Slice(req_elem_ty) => {
+            let infcx = selcx.infcx;
+            let cause = &obligation.cause;
+            let param_env = obligation.param_env;
+            let did = obligation.predicate.def_id;
+            let drcx = DeepRejectCtxt::relate_rigid_rigid(tcx);
+            let bounds = obligation
+                .param_env
+                .caller_bounds()
+                .into_iter()
+                .filter_map(|c| c.as_projection_clause())
+                .filter_map(|p| p.no_bound_vars())
+                .filter(|p| p.def_id() == did);
+            let mut candidate = None::<ty::ProjectionPredicate<'tcx>>;
+            for bound in bounds {
+                if !drcx.types_may_unify(self_ty, bound.projection_term.self_ty()) {
+                    continue;
+                }
+                let mut normalized_obligations = PredicateObligations::new();
+                let projection_term = ensure_sufficient_stack(|| {
+                    normalize_with_depth_to(
+                        selcx,
+                        param_env,
+                        cause.clone(),
+                        obligation.recursion_depth + 1,
+                        bound.projection_term,
+                        &mut normalized_obligations,
+                    )
+                });
+                let target_ty = projection_term.args.type_at(1);
+                let &ty::Array(elem_ty, _) = target_ty.kind() else { continue };
+                if !drcx.types_may_unify(req_elem_ty, elem_ty) {
+                    continue;
+                }
+                // It is alright to commit early.
+                let Ok(InferOk { value: (), obligations: unsized_obligations }) = infcx
+                    .commit_if_ok(|_| {
+                        infcx.at(cause, param_env).eq(
+                            DefineOpaqueTypes::No,
+                            obligation.predicate,
+                            ty::AliasTerm::new(
+                                tcx,
+                                did,
+                                [projection_term.self_ty(), Ty::new_slice(tcx, elem_ty)],
+                            ),
+                        )
+                    })
+                else {
+                    continue;
+                };
+                let Some(first) = candidate else {
+                    candidate = Some(bound);
+                    continue;
+                };
+                let mk_err = |terr| {
+                    ProjectionError::TraitSelectionError(SelectionError::SignatureMismatch(
+                        Box::new(rustc_infer::traits::SignatureMismatchData {
+                            found_trait_ref: bound.projection_term.trait_ref_and_own_args(tcx).0,
+                            expected_trait_ref: first.projection_term.trait_ref_and_own_args(tcx).0,
+                            terr,
+                        }),
+                    ))
+                };
+                let InferOk { value: (), obligations: uniform_obligations } = selcx
+                    .infcx
+                    .at(cause, param_env)
+                    .eq(DefineOpaqueTypes::No, first.projection_term, projection_term)
+                    .map_err(mk_err)?;
+                let InferOk { value: (), obligations: term_obligations } = selcx
+                    .infcx
+                    .at(cause, param_env)
+                    .eq(DefineOpaqueTypes::No, first.term, bound.term)
+                    .map_err(mk_err)?;
+                // GREAT SUCCESS
+                nested.extend(normalized_obligations);
+                nested.extend(unsized_obligations);
+                nested.extend(uniform_obligations);
+                nested.extend(term_obligations);
+            }
+            if let Some(mut predicate) = candidate {
+                // Final unsizing, <Self as Init<[_; _]>> -> <Self as Init<[_]>>
+                predicate.projection_term = obligation.predicate;
+                return Ok(Projected::Progress(
+                    confirm_param_env_candidate(
+                        selcx,
+                        obligation,
+                        ty::Binder::dummy(predicate),
+                        true,
+                    )
+                    .with_addl_obligations(nested),
+                ));
+            }
         }
+        // FIXME: we should admit unsizing on ADTs, too.
+        _ => {}
+    }
+
+    match self_ty.kind() {
+        ty::Init(..) => unreachable!(),
         // A trivial init value
         ty::Bool
         | ty::Char
@@ -1747,8 +1883,10 @@ fn confirm_init_candidate<'cx, 'tcx>(
                 ),
                 term: tcx.types.never.into(),
             });
-            confirm_param_env_candidate(selcx, obligation, predicate, true)
-                .with_addl_obligations(nested)
+            Ok(Projected::Progress(
+                confirm_param_env_candidate(selcx, obligation, predicate, true)
+                    .with_addl_obligations(nested),
+            ))
         }
         ty::Never | ty::Placeholder(_) | ty::Infer(_) | ty::Error(_) => {
             span_bug!(

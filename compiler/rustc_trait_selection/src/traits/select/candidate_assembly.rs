@@ -128,6 +128,12 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                         &mut candidates,
                     );
                 }
+                Some(LangItem::Init) => {
+                    // User defined `Init` comes first but are applicable only on `struct`s and `enums`
+                    self.assemble_candidates_from_impls(obligation, &mut candidates);
+                    self.assemble_candidates_from_object_ty(obligation, &mut candidates);
+                    self.assemble_init_candidates(stack, &mut candidates)?;
+                }
                 _ => {
                     // We re-match here for traits that can have both builtin impls and user written impls.
                     // After the builtin impls we need to also add user written impls, which we do not want to
@@ -160,9 +166,6 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                         Some(LangItem::Fn | LangItem::FnMut | LangItem::FnOnce) => {
                             self.assemble_closure_candidates(obligation, &mut candidates);
                             self.assemble_fn_pointer_candidates(obligation, &mut candidates);
-                        }
-                        Some(LangItem::Init) => {
-                            self.assemble_init_candidates(obligation, &mut candidates);
                         }
                         _ => {}
                     }
@@ -256,14 +259,12 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
     /// supplied to find out whether it is listed among them.
     ///
     /// Never affects the inference environment.
-    #[instrument(level = "debug", skip(self, stack, candidates))]
+    #[instrument(level = "debug", skip(self, stack, candidates), fields(?stack.obligation))]
     fn assemble_candidates_from_caller_bounds<'o>(
         &mut self,
         stack: &TraitObligationStack<'o, 'tcx>,
         candidates: &mut SelectionCandidateSet<'tcx>,
     ) -> Result<(), SelectionError<'tcx>> {
-        debug!(?stack.obligation);
-
         let bounds = stack
             .obligation
             .param_env
@@ -587,18 +588,72 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
         }
     }
 
+    /// Assemble `Init` trait candidate
+    ///
+    /// All `init` blocks have respectively one `Init` implementation,
+    /// so we always short-circuit on `ty::Init` types.
+    /// If unsizing is requested, the unsize rules will be checked in
+    /// confirmation.
+    ///
+    /// Otherwise, we scan the environment for trait predicates `Init<$target_ty>`
+    /// and we will try to match unsizing first,
+    /// followed by concrete rigid types,
+    /// for which we will use the identity initializer, in other words by moving
+    /// the value into the slot.
     #[instrument(level = "debug", skip(self, candidates))]
-    fn assemble_init_candidates(
+    fn assemble_init_candidates<'o>(
         &mut self,
-        obligation: &PolyTraitObligation<'tcx>,
+        stack: &TraitObligationStack<'o, 'tcx>,
         candidates: &mut SelectionCandidateSet<'tcx>,
-    ) {
+    ) -> Result<(), SelectionError<'tcx>> {
+        let obligation = stack.obligation;
         let self_ty = obligation.self_ty().skip_binder();
-        match self_ty.kind() {
-            ty::Init(_, _) => {
-                debug!("init candidate");
-                candidates.vec.push(InitCandidate);
+        debug!(kind = ?self_ty.kind());
+        let tcx = self.tcx();
+        let bounds =
+            obligation.param_env.caller_bounds().iter().filter_map(|p| p.as_trait_clause()).filter(
+                |p| {
+                    tcx.is_lang_item(p.def_id(), LangItem::Init)
+                        && matches!(p.polarity(), ty::PredicatePolarity::Positive)
+                },
+            );
+        if let ty::Init(_, _) = self_ty.kind() {
+            debug!("init candidate");
+            candidates.vec.push(InitCandidate);
+            // Short circuiting
+            // .. because this is the most specific `Init` impl
+            // there can be.
+            // During the confirmation stage we will figure out whether
+            // an unsizing `Init` should be used
+            return Ok(());
+        }
+        let target_ty = self
+            .infcx
+            .resolve_vars_if_possible(obligation.predicate.skip_binder().trait_ref.args.type_at(1));
+        // Try to take from the typing environment, in order of specificity:
+        match target_ty.kind() {
+            // 1) S: Init<[T; N]>
+            //    ________________ init_unsize_array
+            //    S: Init<[T]>
+            &ty::Slice(_) => {
+                if self.choose_array_unsizing_candidates(stack, bounds, candidates)? {
+                    debug!("select unsizing init");
+                    return Ok(());
+                }
             }
+            // 2) S: Init<SomeAdt<.., T, ..>>
+            //    T: Unsize<U>
+            //    SomeAdt<.., T, ..>: CoerceUnsized<SomeAdt<.., U, ..>>
+            //    ___________________________ init_unsize_adt
+            //    S: Init<SomeAdt<.., U, ..>>
+            &ty::Adt(_def, _args) => {
+                // NOTE: unify for unsizing ADTs too
+            }
+            _ => {}
+        }
+        // Next candidate, the identity
+        match self_ty.kind() {
+            ty::Init(_, _) => {}
             ty::Bool
             | ty::Char
             | ty::Int(_)
@@ -608,6 +663,8 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
             | ty::Foreign(_)
             | ty::Str
             | ty::Array(_, _)
+            | ty::Alias(_, _)
+            | ty::Param(_)
             | ty::Pat(_, _)
             | ty::Slice(_)
             | ty::RawPtr(_, _)
@@ -621,8 +678,6 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
             | ty::Coroutine(_, _)
             | ty::CoroutineWitness(_, _)
             | ty::Tuple(_)
-            | ty::Alias(_, _)
-            | ty::Param(_)
             | ty::Infer(
                 ty::IntVar(_) | ty::FloatVar(_) | ty::FreshIntTy(_) | ty::FreshFloatTy(_),
             )
@@ -632,6 +687,7 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
             }
             ty::Never | ty::Placeholder(_) | ty::Infer(_) | ty::Error(_) => {}
         }
+        Ok(())
     }
 
     /// Searches for impls that might apply to `obligation`.

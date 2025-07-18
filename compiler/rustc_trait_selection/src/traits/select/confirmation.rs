@@ -100,6 +100,11 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                 self.confirm_init_candidate(obligation)?,
             ),
 
+            ArrayUnsizeInitCandidate(bounds) => ImplSource::Builtin(
+                BuiltinImplSource::Misc,
+                self.confirm_array_unsizing_init_candidate(&bounds, obligation)?,
+            ),
+
             TrivialInitCandidate => ImplSource::Builtin(
                 BuiltinImplSource::Misc,
                 self.confirm_trivial_init_candidate(obligation)?,
@@ -728,13 +733,84 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
         let closure_args = args.as_closure();
         let ty::FnPtr(in_outs, _) = closure_args.sig_as_fn_ptr_ty().kind() else { bug!() };
         let &ty::Tuple(outs) = in_outs.skip_binder().output().kind() else { bug!() };
-        let [ret_ty, ..] = **outs else { bug!() };
+        let [target_ty, ..] = **outs else { bug!() };
         let trait_ref =
-            ty::TraitRef::new(self.tcx(), placeholder_predicate.def_id(), [self_ty, ret_ty]);
+            ty::TraitRef::new(self.tcx(), placeholder_predicate.def_id(), [self_ty, target_ty]);
+        // Here we can allow `ty::Init` to initialise with unsizing
+        let req_target_ty = placeholder_predicate.trait_ref.args.type_at(1);
+        match (target_ty.kind(), req_target_ty.kind()) {
+            (&ty::Array(elem_ty, _), &ty::Slice(req_elem_ty)) => {
+                // we can discharge the obligation by requiring `elem_ty == req_elm_ty`
+                let Normalized { obligations: nested, value: (elem_ty, req_elem_ty) } =
+                    ensure_sufficient_stack(|| {
+                        normalize_with_depth(
+                            self,
+                            obligation.param_env,
+                            obligation.cause.clone(),
+                            obligation.recursion_depth + 1,
+                            (elem_ty, req_elem_ty),
+                        )
+                    });
+                debug!(?elem_ty, ?req_elem_ty, "unsizing, demand equality");
+                return self
+                    .infcx
+                    .at(&obligation.cause, obligation.param_env)
+                    .eq(DefineOpaqueTypes::Yes, elem_ty, req_elem_ty)
+                    .map(|InferOk { mut obligations, .. }| {
+                        obligations.extend(nested);
+                        obligations
+                    })
+                    .map_err(|terr| {
+                        SelectionError::SignatureMismatch(Box::new(SignatureMismatchData {
+                            expected_trait_ref: placeholder_predicate.trait_ref,
+                            found_trait_ref: trait_ref,
+                            terr,
+                        }))
+                    });
+            }
+            (ty::Adt(adt_def, _), ty::Adt(req_adt_def, _))
+                if adt_def.did() == req_adt_def.did() => {}
+            _ => {}
+        }
         let nested = self.equate_trait_refs(
             obligation.with(self.tcx(), placeholder_predicate),
             ty::Binder::dummy(trait_ref),
         )?;
+        Ok(nested)
+    }
+
+    #[instrument(level = "debug", skip(self), ret)]
+    fn confirm_array_unsizing_init_candidate(
+        &mut self,
+        bounds: &[ty::PolyTraitPredicate<'tcx>],
+        obligation: &PolyTraitObligation<'tcx>,
+    ) -> Result<PredicateObligations<'tcx>, SelectionError<'tcx>> {
+        let tcx = self.tcx();
+        let placeholder_predicate = self.infcx.enter_forall_and_leak_universe(obligation.predicate);
+        let &ty::Slice(elem_ty) = placeholder_predicate.trait_ref.args.type_at(1).kind() else {
+            bug!()
+        };
+        let size = self.infcx.next_const_var(rustc_span::DUMMY_SP);
+        let source = Ty::new_array_with_const_len(tcx, elem_ty, size);
+
+        // Force the unification of all selected bounds, so that their target types agree
+        let mut nested = PredicateObligations::new();
+        for &bound in bounds {
+            nested.extend(self.equate_trait_refs(
+                obligation.with(
+                    tcx,
+                    ty::TraitPredicate {
+                        trait_ref: ty::TraitRef::new(
+                            tcx,
+                            placeholder_predicate.trait_ref.def_id,
+                            [placeholder_predicate.trait_ref.self_ty(), source],
+                        ),
+                        ..placeholder_predicate
+                    },
+                ),
+                bound.map_bound(|b| b.trait_ref),
+            )?);
+        }
         Ok(nested)
     }
 
