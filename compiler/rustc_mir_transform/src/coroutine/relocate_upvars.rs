@@ -29,10 +29,38 @@
 //!
 //! Each place that starts with access into the coroutine structure `_1` is replaced with the fresh local as
 //! the base.
-//! For instance, `(_1.4 as Some).0` is rewritten into `(_34 as Some).0` when `_34` is the fresh local
-//! corresponding to the captured upvar stored in `_1.4`.
+//! Suppose we are to lower this coroutine into the MIR.
+//! ```ignore (illustrative)
+//! let mut captured = None;
+//! let _ = #[coroutine] || {
+//!     yield ();
+//!     if let Some(inner) = &mut captured {
+//!         *inner = 42i32; // (*)
+//!     }
+//! };
+//! ```
+//! `captured` is the only capture, whose mutable borrow is formally alotted to the first field `_1.0: &mut i32`.
+//! The highlighted line `(*)` should be lowered, roughly, into MIR `(*_1.0) = const 42i32;`.
+//! Now, by application of this pass, we create a new local `_4: &mut i32` and we perform the following
+//! code transformation.
 //!
-//! This phase assumes that the initial built MIR respects the nature of captures.
+//! A new block is constructed to just perform the relocation of this mutable borrow.
+//! This block is inserted to the very beginning of the coroutine body control flow,
+//! so that this is executed before any proper coroutine code as it transits from `UNRESUME` state to
+//! any other state.
+//! This "prologue" will look like the following.
+//! ```ignore (illustrative)
+//! StorageLive(_5);
+//! StorageLive(_4);
+//! _5 = move (_1.0);
+//! _4 = move (_5);
+//! StorageDead(_5);
+//! ```
+//! Note that we also create a trampoline local `_5` of the same type.
+//! ### Intricacy around the trampoline local
+//! It is expected that
+//!
+//! One should note that this phase assumes that the initial built MIR respects the nature of captures.
 //! For instance, if the upvar `_1.4` is instead a by-ref-mut capture of a value of type `T`,
 //! this phase assumes that all access correctly built as operating on the place `(*_1.4)`.
 //! Based on the assumption, this phase replaces `_1.4` with a fresh local `_34: &mut T` and
