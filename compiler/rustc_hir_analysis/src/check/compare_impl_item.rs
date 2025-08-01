@@ -32,6 +32,7 @@ use crate::errors::{LifetimesOrBoundsMismatchOnTrait, MethodShouldReturnFuture};
 pub(super) mod refine;
 
 /// Call the query `tcx.compare_impl_item()` directly instead.
+#[instrument(level = "debug", skip(tcx))]
 pub(super) fn compare_impl_item(
     tcx: TyCtxt<'_>,
     impl_item_def_id: LocalDefId,

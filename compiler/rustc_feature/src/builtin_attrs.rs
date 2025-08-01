@@ -744,6 +744,15 @@ pub static BUILTIN_ATTRIBUTES: &[BuiltinAttribute] = &[
          never type stabilization"
     ),
 
+    rustc_attr!(
+        rustc_supertrait_in_subtrait_impl,
+        Normal,
+        template!(Word),
+        WarnFollowing,
+        EncodeCrossCrate::Yes,
+        "`rustc_supertrait_in_subtrait_impl` enables subtrait `impl`s to contain supertrait associated items"
+    ),
+
     // ==========================================================================
     // Internal attributes: Runtime related:
     // ==========================================================================
@@ -1259,10 +1268,6 @@ pub static BUILTIN_ATTRIBUTES: &[BuiltinAttribute] = &[
     rustc_attr!(
         TEST, pattern_complexity_limit, CrateLevel, template!(NameValueStr: "N"),
         ErrorFollowing, EncodeCrossCrate::No,
-    ),
-    rustc_attr!(
-        TEST, rustc_supertrait_in_subtrait_impl, Normal, template!(Word),
-        WarnFollowing, EncodeCrossCrate::Yes,
     ),
 ];
 

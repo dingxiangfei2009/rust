@@ -155,16 +155,17 @@ pub(crate) fn provide(providers: &mut Providers) {
 
 fn coherent_trait(tcx: TyCtxt<'_>, def_id: DefId) -> Result<(), ErrorGuaranteed> {
     let impls = tcx.local_trait_impls(def_id);
+    let supertrait_impls = tcx.local_implicit_supertrait_impls(def_id);
     // If there are no impls for the trait, then "all impls" are trivially coherent and we won't check anything
     // anyway. Thus we bail out even before the specialization graph, avoiding the dep_graph edge.
-    if impls.is_empty() {
+    if impls.is_empty() && supertrait_impls.is_empty() {
         return Ok(());
     }
     // Trigger building the specialization graph for the trait. This will detect and report any
     // overlap errors.
     let mut res = tcx.ensure_ok().specialization_graph_of(def_id);
 
-    for &impl_def_id in impls {
+    for &impl_def_id in impls.iter().chain(supertrait_impls) {
         let impl_header = tcx.impl_trait_header(impl_def_id).unwrap();
         let trait_ref = impl_header.trait_ref.instantiate_identity();
         let trait_def = tcx.trait_def(trait_ref.def_id);

@@ -826,10 +826,19 @@ rustc_queries! {
         separate_provide_extern
     }
 
+    /// Given a subtrait `DefId`, returns a list of supertraits, instantiated with the respective type arguments,
+    /// along with the directive on whether the supertrait is a marker and should be automatically implemented.
+    /// This query is different from `explicit_super_predicates_of` in the way that only superbounds on the trait
+    /// definitions are collected and, for marker traits, whether automatic implementation is allowed.
     query supertrait_auto_impls(key: DefId) -> ty::EarlyBinder<'tcx, &'tcx [(ty::Clause<'tcx>, ty::TraitRefSource)]> {
         desc { |tcx| "computing the supertrait auto-impls of `{}`", tcx.def_path_str(key) }
         cache_on_disk_if { key.is_local() }
         separate_provide_extern
+    }
+
+    /// Collects all supertrait associated items in local subtrait impls
+    query supertraits_in_local_subtrait_impls(_: ()) -> &'tcx (DefIdMap<Vec<LocalDefId>>, DefIdMap<LocalDefId>) {
+        desc { |tcx| "collecting the supertrait associated items in local subtrait impls" }
     }
 
     /// The predicates of the trait that are implied during elaboration.

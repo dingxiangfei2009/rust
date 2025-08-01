@@ -4,7 +4,7 @@ use rustc_data_structures::fx::FxIndexMap;
 use rustc_errors::ErrorGuaranteed;
 use rustc_hir as hir;
 use rustc_hir::def::DefKind;
-use rustc_hir::def_id::{DefId, LOCAL_CRATE};
+use rustc_hir::def_id::{DefId, LOCAL_CRATE, LocalDefId};
 use rustc_macros::{Decodable, Encodable, HashStable};
 use tracing::debug;
 
@@ -201,6 +201,20 @@ impl<'tcx> TyCtxt<'tcx> {
 
         blanket_impls.iter().chain(non_blanket_impls.iter().flat_map(|(_, v)| v)).cloned()
     }
+
+    /// Given a trait `DefId`, retrieve the local supertrait impls
+    /// that are backfilled
+    pub fn local_implicit_supertrait_impls(self, def_id: DefId) -> &'tcx [LocalDefId] {
+        let (all_supertrait_impls, _) = self.supertraits_in_local_subtrait_impls(());
+        all_supertrait_impls.get(&def_id).map_or(&[][..], |impls| &impls[..])
+    }
+
+    /// Given a trait `impl` item, in a `impl <Trait> for ..` block,
+    /// retrieve the backfilling, implicit supertrait impl
+    pub fn supertrait_item_container(self, did: DefId) -> Option<LocalDefId> {
+        let (_, implicit_container_of) = self.supertraits_in_local_subtrait_impls(());
+        implicit_container_of.get(&did).copied()
+    }
 }
 
 /// Query provider for `trait_impls_of`.
@@ -227,7 +241,9 @@ pub(super) fn trait_impls_of_provider(tcx: TyCtxt<'_>, trait_id: DefId) -> Trait
         }
     }
 
-    for &impl_def_id in tcx.local_trait_impls(trait_id) {
+    for &impl_def_id in
+        tcx.local_trait_impls(trait_id).iter().chain(tcx.local_implicit_supertrait_impls(trait_id))
+    {
         let impl_def_id = impl_def_id.to_def_id();
 
         let impl_self_ty = tcx.type_of(impl_def_id).instantiate_identity();

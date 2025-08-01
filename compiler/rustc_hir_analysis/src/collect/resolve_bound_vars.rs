@@ -1102,6 +1102,9 @@ impl<'a, 'tcx> BoundVarContext<'a, 'tcx> {
 
     fn record_late_bound_vars(&mut self, hir_id: HirId, binder: Vec<ty::BoundVariableKind>) {
         if let Some(old) = self.rbv.late_bound_vars.insert(hir_id.local_id, binder) {
+            if old == self.rbv.late_bound_vars[&hir_id.local_id] {
+                return;
+            }
             bug!(
                 "overwrote bound vars for {hir_id:?}:\nold={old:?}\nnew={:?}",
                 self.rbv.late_bound_vars[&hir_id.local_id]

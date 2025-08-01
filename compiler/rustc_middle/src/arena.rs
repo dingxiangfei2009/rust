@@ -107,6 +107,8 @@ macro_rules! arena_types {
                     rustc_hir::def_id::DefId,
                     rustc_middle::ty::EarlyBinder<'tcx, rustc_middle::ty::Ty<'tcx>>
                 >,
+            [decode] supertrait_backfill_impls:
+                (rustc_hir::def_id::DefIdMap<Vec<rustc_hir::def_id::LocalDefId>>, rustc_hir::def_id::DefIdMap<rustc_hir::def_id::LocalDefId>),
             [] external_constraints: rustc_middle::traits::solve::ExternalConstraintsData<rustc_middle::ty::TyCtxt<'tcx>>,
             [] predefined_opaques_in_body: rustc_middle::traits::solve::PredefinedOpaquesData<rustc_middle::ty::TyCtxt<'tcx>>,
             [decode] doc_link_resolutions: rustc_hir::def::DocLinkResMap,

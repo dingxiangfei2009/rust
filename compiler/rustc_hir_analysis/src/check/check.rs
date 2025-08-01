@@ -733,6 +733,7 @@ fn check_static_linkage(tcx: TyCtxt<'_>, def_id: LocalDefId) {
     }
 }
 
+#[instrument(level = "debug", skip(tcx))]
 pub(crate) fn check_item_type(tcx: TyCtxt<'_>, def_id: LocalDefId) -> Result<(), ErrorGuaranteed> {
     let mut res = Ok(());
     let generics = tcx.generics_of(def_id);
@@ -1133,6 +1134,7 @@ pub(super) fn check_specialization_validity<'tcx>(
     }
 }
 
+#[instrument(level = "debug", skip(tcx))]
 fn check_impl_items_against_trait<'tcx>(
     tcx: TyCtxt<'tcx>,
     impl_id: LocalDefId,

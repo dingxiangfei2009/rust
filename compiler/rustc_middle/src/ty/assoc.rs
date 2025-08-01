@@ -62,19 +62,27 @@ impl AssocItem {
         tcx.visibility(self.def_id)
     }
 
+    /// Extract the containing definition
+    ///
+    /// For supertrait items, the synthesized supertrait `impl` is returned,
+    /// rather than the HIR `impl $Subtrait for ..` parent definition.
     #[inline]
     pub fn container_id(&self, tcx: TyCtxt<'_>) -> DefId {
-        tcx.parent(self.def_id)
+        tcx.supertrait_item_container(self.def_id)
+            .map_or_else(|| tcx.parent(self.def_id), |id| id.to_def_id())
     }
 
+    /// Extract the container only when it is an associated item
+    /// in a `impl $Trait for ..` block
     #[inline]
     pub fn trait_container(&self, tcx: TyCtxt<'_>) -> Option<DefId> {
         match self.container {
             AssocItemContainer::Impl => None,
-            AssocItemContainer::Trait => Some(tcx.parent(self.def_id)),
+            AssocItemContainer::Trait => Some(self.container_id(tcx)),
         }
     }
 
+    /// Extract the container only when it is an inherent associated item
     #[inline]
     pub fn impl_container(&self, tcx: TyCtxt<'_>) -> Option<DefId> {
         match self.container {

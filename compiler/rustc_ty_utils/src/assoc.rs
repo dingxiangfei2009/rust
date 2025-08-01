@@ -8,6 +8,7 @@ use rustc_middle::ty::{self, ImplTraitInTraitData, TyCtxt};
 use rustc_middle::{bug, span_bug};
 use rustc_span::Ident;
 use rustc_span::symbol::kw;
+use tracing::instrument;
 
 pub(crate) fn provide(providers: &mut Providers) {
     *providers = Providers {
@@ -145,6 +146,7 @@ impl<'tcx> Visitor<'tcx> for RPITVisitor<'_, 'tcx> {
     }
 }
 
+#[instrument(level = "debug", skip(tcx))]
 fn associated_types_for_impl_traits_in_trait_or_impl<'tcx>(
     tcx: TyCtxt<'tcx>,
     def_id: LocalDefId,
@@ -181,6 +183,8 @@ fn associated_types_for_impl_traits_in_trait_or_impl<'tcx>(
             let Some(trait_def_id) = trait_ref.trait_def_id() else {
                 return Default::default();
             };
+            // Possible supertrait items!
+            // We don't analyse them here.
             let in_trait_def = tcx.associated_types_for_impl_traits_in_trait_or_impl(trait_def_id);
             impl_
                 .items
