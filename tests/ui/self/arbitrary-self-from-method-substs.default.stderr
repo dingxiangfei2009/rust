@@ -59,7 +59,8 @@ LL |     fn get6<FR: FindReceiver>(self: FR::Receiver, other: FR) -> u32 {
    |                                     ^^^^^^^^^^^^
    |
    = note: type of `self` must be `Self` or a type that dereferences to it
-   = help: consider changing to `self`, `&self`, `&mut self`, `self: Box<Self>`, `self: Rc<Self>`, `self: Arc<Self>`, or `self: Pin<P>` (where P is one of the previous types except `Self`)
+   = help: consider changing to `self`, `&self`, `&mut self`, `self: Box<Self>`, `self: Rc<Self>`, `self: Arc<Self>`, or `self: Pin<P>` (where P is one of the previous types except `Self`);
+           alternatively, consider implement `Receiver` trait on the type of `self`, where applicable
 
 error[E0307]: invalid `self` parameter type: `R`
   --> $DIR/arbitrary-self-from-method-substs.rs:102:18
@@ -68,7 +69,8 @@ LL |     fn get(self: R) {}
    |                  ^
    |
    = note: type of `self` must be `Self` or a type that dereferences to it
-   = help: consider changing to `self`, `&self`, `&mut self`, `self: Box<Self>`, `self: Rc<Self>`, `self: Arc<Self>`, or `self: Pin<P>` (where P is one of the previous types except `Self`)
+   = help: consider changing to `self`, `&self`, `&mut self`, `self: Box<Self>`, `self: Rc<Self>`, `self: Arc<Self>`, or `self: Pin<P>` (where P is one of the previous types except `Self`);
+           alternatively, consider implement `Receiver` trait on the type of `self`, where applicable
 
 error[E0271]: type mismatch resolving `<Silly as FindReceiver>::Receiver == Foo`
   --> $DIR/arbitrary-self-from-method-substs.rs:136:9

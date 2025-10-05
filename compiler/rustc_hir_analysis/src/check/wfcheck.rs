@@ -1819,7 +1819,7 @@ fn receiver_is_valid<'tcx>(
     let mut autoderef = Autoderef::new(infcx, wfcx.param_env, wfcx.body_def_id, span, receiver_ty);
 
     // The `arbitrary_self_types` feature allows custom smart pointer
-    // types to be method receivers, as identified by following the Receiver<Target=T>
+    // types to be method receivers, as identified by following the Receiver<Target = T>
     // chain.
     if arbitrary_self_types_enabled.is_some() {
         // We are in the wf check, so we would like to deref the references in the type head.
