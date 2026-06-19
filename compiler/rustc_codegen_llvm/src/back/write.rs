@@ -940,7 +940,7 @@ pub(crate) fn optimize(
                 opt_level,
                 opt_stage,
                 autodiff_stage,
-            )
+            );
         };
         if let Some(thin_lto_buffer) = thin_lto_buffer {
             let thin_lto_buffer = thin_lto_buffer.unwrap();

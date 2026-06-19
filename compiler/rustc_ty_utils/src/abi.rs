@@ -42,6 +42,25 @@ fn fn_sig_for_fn_abi<'tcx>(
         return tcx.mk_fn_sig_safe_rust_abi([], tcx.thread_local_ptr_ty(instance.def_id()));
     }
 
+    if matches!(instance.def, InstanceKind::Shim(ShimKind::CoroutineRamp { .. }))
+        || matches!(instance.def, InstanceKind::Shim(ShimKind::AsyncDropGlueResume(..)))
+    {
+        let coro_args = instance.args.as_coroutine();
+        let ret_ty = Ty::new_mut_ptr(tcx, tcx.types.u8);
+        let coro_ty = Ty::new_mut_ptr(tcx, tcx.types.u8);
+        let is_unwind_ty = tcx.types.bool;
+        let resume_ptr = Ty::new_mut_ptr(tcx, coro_args.resume_ty());
+        let yield_ptr = Ty::new_mut_ptr(tcx, coro_args.yield_ty());
+        let return_ptr = Ty::new_mut_ptr(tcx, coro_args.return_ty());
+        return tcx.mk_fn_sig(
+            [coro_ty, is_unwind_ty, resume_ptr, yield_ptr, return_ptr],
+            ret_ty,
+            ty::FnSigKind::default()
+                .set_abi(ExternAbi::C { unwind: false })
+                .set_safety(hir::Safety::Safe),
+        );
+    }
+
     let ty = instance.ty(tcx, typing_env);
     match *ty.kind() {
         ty::FnDef(def_id, args) => {
@@ -214,7 +233,6 @@ fn fn_sig_for_fn_abi<'tcx>(
                     (Some(sig.resume_ty), ret_ty)
                 }
             };
-
             if let Some(resume_ty) = resume_ty {
                 tcx.mk_fn_sig_safe_rust_abi([env_ty, resume_ty], ret_ty)
             } else {

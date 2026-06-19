@@ -1,5 +1,7 @@
 //@ run-pass
 //@ check-run-results
+//@ revisions: default retcon
+//@[retcon]compile-flags: -Z backend-coroutines
 // Test async drop of coroutine `bar` (with internal async drop),
 // stopped at the middle of execution, with AsyncDrop object Foo active.
 

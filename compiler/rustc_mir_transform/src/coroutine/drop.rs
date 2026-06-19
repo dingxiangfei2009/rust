@@ -322,7 +322,7 @@ pub(super) fn create_coroutine_drop_shim_async<'tcx>(
 
 // Create async drop shim proxy function for future_drop_poll
 // It is just { call coroutine_drop(); return Poll::Ready(); }
-pub(super) fn create_coroutine_drop_shim_proxy_async<'tcx>(
+pub(crate) fn create_coroutine_drop_shim_proxy_async<'tcx>(
     tcx: TyCtxt<'tcx>,
     body: &Body<'tcx>,
     coroutine_kind: CoroutineKind,

@@ -135,7 +135,7 @@ declare_passes! {
     pub mod cleanup_post_borrowck : CleanupPostBorrowck;
 
     mod copy_prop : CopyProp;
-    mod coroutine : StateTransform;
+    mod coroutine : StateTransform, BackendCoroutineTransform;
     mod coverage : InstrumentCoverage;
     mod ctfe_limit : CtfeLimit;
     mod dataflow_const_prop : DataflowConstProp;
@@ -788,6 +788,7 @@ pub(crate) fn run_optimization_passes<'tcx>(tcx: TyCtxt<'tcx>, body: &mut Body<'
             &large_enums::EnumSizeOpt { discrepancy: 128 },
             // Some cleanup necessary at least for LLVM and potentially other codegen backends.
             &add_call_guards::CriticalCallEdges,
+            &coroutine::BackendCoroutineTransform,
             // Cleanup for human readability, off by default.
             &prettify::ReorderBasicBlocks,
             &prettify::ReorderLocals,

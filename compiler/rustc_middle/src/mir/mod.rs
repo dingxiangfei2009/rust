@@ -153,6 +153,9 @@ pub struct CoroutineInfo<'tcx> {
     /// Coroutine drop glue. This field is populated after the state transform pass.
     pub coroutine_drop: Option<Body<'tcx>>,
 
+    /// The ramp function for retcon coroutines. This field is populated after NativeLoweringTransform.
+    pub coroutine_ramp: Option<Body<'tcx>>,
+
     /// Coroutine async drop glue.
     pub coroutine_drop_async: Option<Body<'tcx>>,
 
@@ -179,9 +182,53 @@ impl<'tcx> CoroutineInfo<'tcx> {
             yield_ty: Some(yield_ty),
             resume_ty: Some(resume_ty),
             coroutine_drop: None,
+            coroutine_ramp: None,
             coroutine_drop_async: None,
             coroutine_drop_proxy_async: None,
             coroutine_layout: None,
+        }
+    }
+
+    pub fn is_retcon(tcx: TyCtxt<'tcx>, def_id: DefId) -> bool {
+        let is_supported = matches!(
+            tcx.coroutine_kind(def_id),
+            Some(
+                rustc_hir::CoroutineKind::Coroutine(_)
+                    | rustc_hir::CoroutineKind::Desugared(
+                        rustc_hir::CoroutineDesugaring::Async | rustc_hir::CoroutineDesugaring::Gen,
+                        _
+                    )
+            )
+        );
+        if !is_supported {
+            return false;
+        }
+        if def_id.is_local() || tcx.is_async_drop_in_place_coroutine(def_id) {
+            tcx.sess.opts.unstable_opts.backend_coroutines
+        } else {
+            tcx.optimized_mir(def_id).coroutine_ramp().is_some()
+        }
+    }
+
+    /// Construct the `Instance` for the backend coroutine ramp shim corresponding to the
+    /// given coroutine `def_id` and `args`. Returns `CoroutineRamp` for normal coroutines,
+    /// or `AsyncDropGlueResume` for async drop glue coroutines.
+    pub fn backend_coroutine_ramp_instance(
+        tcx: TyCtxt<'tcx>,
+        def_id: DefId,
+        args: GenericArgsRef<'tcx>,
+    ) -> Instance<'tcx> {
+        if tcx.is_async_drop_in_place_coroutine(def_id) {
+            let cor_ty = Ty::new_coroutine(tcx, def_id, args);
+            Instance {
+                def: InstanceKind::Shim(ShimKind::AsyncDropGlueResume(def_id, cor_ty)),
+                args,
+            }
+        } else {
+            Instance {
+                def: InstanceKind::Shim(ShimKind::CoroutineRamp { coroutine_def_id: def_id }),
+                args,
+            }
         }
     }
 }
@@ -572,6 +619,11 @@ impl<'tcx> Body<'tcx> {
     }
 
     #[inline]
+    pub fn coroutine_ramp(&self) -> Option<&Body<'tcx>> {
+        self.coroutine.as_ref().and_then(|coroutine| coroutine.coroutine_ramp.as_ref())
+    }
+
+    #[inline]
     pub fn coroutine_drop_async(&self) -> Option<&Body<'tcx>> {
         self.coroutine.as_ref().and_then(|coroutine| coroutine.coroutine_drop_async.as_ref())
     }
@@ -869,6 +921,17 @@ rustc_index::newtype_index! {
 }
 
 impl Local {
+    /// The buffer argument pointer for backend coroutines
+    pub const COROUTINE_ARG_BUFFER: Local = Local::from_usize(1);
+    /// The is_unwind argument for backend coroutines
+    pub const COROUTINE_ARG_DROP: Local = Local::from_usize(2);
+    /// The resume argument pointer for backend coroutines
+    pub const COROUTINE_ARG_RESUME: Local = Local::from_usize(3);
+    /// The yield argument pointer for backend coroutines
+    pub const COROUTINE_ARG_YIELD: Local = Local::from_usize(4);
+    /// The return argument pointer for backend coroutines
+    pub const COROUTINE_ARG_RETURN: Local = Local::from_usize(5);
+
     /// Makes a `Local` for the `i`-th argument to a function.
     ///
     /// `Local(0)` is the [`RETURN_PLACE`], with the arguments after that,

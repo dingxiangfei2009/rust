@@ -360,13 +360,14 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
         for elem in place_ref.projection[base..].iter() {
             cg_base = match *elem {
                 mir::ProjectionElem::Deref => bx.load_operand(cg_base).deref(bx.cx()),
-                mir::ProjectionElem::Field(ref field, _) => {
+                mir::ProjectionElem::Field(ref field, _proj_ty) => {
                     assert!(
                         !cg_base.layout.ty.is_any_ptr(),
                         "Bad PlaceRef: destructing pointers should use cast/PtrMetadata, \
                          but tried to access field {field:?} of pointer {cg_base:?}",
                     );
-                    cg_base.project_field(bx, field.index())
+                    let field_idx = field.index();
+                    cg_base.project_field(bx, field_idx)
                 }
                 mir::ProjectionElem::OpaqueCast(ty) => {
                     bug!("encountered OpaqueCast({ty}) in codegen")

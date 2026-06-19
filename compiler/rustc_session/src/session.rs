@@ -779,6 +779,8 @@ impl Session {
         || self.sanitizers().intersects(SanitizerSet::ADDRESS | SanitizerSet::KERNELADDRESS | SanitizerSet::MEMORY | SanitizerSet::HWADDRESS | SanitizerSet::KERNELHWADDRESS)
         // Lifetimes are necessary for retagging semantics.
         || self.opts.unstable_opts.codegen_emit_retag.is_some()
+        // Lifetimes are required by LLVM CoroSplit so temporary allocas aren't spilled into retcon coroutine frames.
+        || self.opts.unstable_opts.backend_coroutines
     }
 
     pub fn diagnostic_width(&self) -> usize {

@@ -16,6 +16,7 @@ use rustc_target::callconv::FnAbi;
 use super::abi::AbiBuilderMethods;
 use super::asm::AsmBuilderMethods;
 use super::consts::ConstCodegenMethods;
+use super::coroutine::CoroutineBuilderMethods;
 use super::coverageinfo::CoverageInfoBuilderMethods;
 use super::debuginfo::DebugInfoBuilderMethods;
 use super::intrinsic::IntrinsicCallBuilderMethods;
@@ -41,6 +42,7 @@ pub trait BuilderMethods<'a, 'tcx>:
     + Deref<Target = Self::CodegenCx>
     + CoverageInfoBuilderMethods<'tcx>
     + DebugInfoBuilderMethods<'tcx>
+    + CoroutineBuilderMethods<'tcx>
     + ArgAbiBuilderMethods<'tcx>
     + AbiBuilderMethods
     + IntrinsicCallBuilderMethods<'tcx>

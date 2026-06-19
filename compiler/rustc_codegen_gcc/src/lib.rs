@@ -56,6 +56,7 @@ mod callee;
 mod common;
 mod consts;
 mod context;
+mod coroutine;
 mod coverageinfo;
 mod debuginfo;
 mod declare;

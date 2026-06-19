@@ -48,6 +48,8 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
                 LocalRef::Operand(op) => {
                     let expected_ty = self.monomorphize(self.mir.local_decls[local].ty);
                     if expected_ty != op.layout.ty {
+                        eprintln!("WARNING! Compiling instance: {:#?}", self.instance);
+                        eprintln!("WARNING! fn_abi args: {:#?}", self.fn_abi.args);
                         warn!(
                             "Unexpected initial operand type:\nexpected {expected_ty:?},\nfound    {:?}.\n\
                             See <https://github.com/rust-lang/rust/issues/114858>.",

@@ -52,6 +52,17 @@ pub(crate) fn non_ssa_locals<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>>(
         }
     }
 
+    // When codegenning retcon coroutine shims across any crate boundary (`fx.coroutine_handle.is_some()`),
+    // `_2` through `_5` (`COROUTINE_ARG_DROP`, `RESUME`, `YIELD`, `RETURN`) are updated across `Yield`
+    // during LLVM codegen (`update_coroutine_local`). Because `LocalAnalyzer` does not see this backend
+    // re-definition, explicitly mark them as memory locals (`!coro.outside.frame` allocas).
+    if fx.coroutine_handle.is_some() {
+        non_ssa_locals.insert(mir::Local::COROUTINE_ARG_DROP);
+        non_ssa_locals.insert(mir::Local::COROUTINE_ARG_RESUME);
+        non_ssa_locals.insert(mir::Local::COROUTINE_ARG_YIELD);
+        non_ssa_locals.insert(mir::Local::COROUTINE_ARG_RETURN);
+    }
+
     non_ssa_locals
 }
 
@@ -263,7 +274,15 @@ impl<'a, 'b, 'tcx, Bx: BuilderMethods<'b, 'tcx>> Visitor<'tcx> for LocalAnalyzer
                 }
             }
 
-            PlaceContext::MutatingUse(MutatingUseContext::Yield) => bug!(),
+            PlaceContext::MutatingUse(MutatingUseContext::Yield) => {
+                let call = location.block;
+                let TerminatorKind::Yield { resume, .. } =
+                    &self.fx.mir.basic_blocks[call].terminator().kind
+                else {
+                    bug!()
+                };
+                self.define(local, DefLocation::CallReturn { call, target: Some(*resume) });
+            }
         }
     }
 

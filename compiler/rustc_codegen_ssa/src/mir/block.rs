@@ -248,11 +248,13 @@ impl<'a, 'tcx> TerminatorCodegenHelper<'tcx> {
         }
 
         if let Some(unwind_block) = unwind_block {
-            let ret_llbb = if let Some((_, target)) = destination {
-                self.llbb_with_cleanup(fx, target)
+            let landing_bb = if let Some((_, target)) = destination {
+                let name = format!("{:?}_ret_landing_{:?}", self.bb, target);
+                Some(Bx::append_block(fx.cx, fx.llfn, &name))
             } else {
-                fx.unreachable_block()
+                None
             };
+            let ret_llbb = landing_bb.unwrap_or_else(|| fx.unreachable_block());
             let invokeret = bx.invoke(
                 fn_ty,
                 caller_attrs,
@@ -269,18 +271,14 @@ impl<'a, 'tcx> TerminatorCodegenHelper<'tcx> {
             }
 
             if let Some((ret_dest, target)) = destination {
-                bx.switch_to_block(fx.llbb(target));
+                let landing = landing_bb.unwrap();
+                bx.switch_to_block(landing);
                 fx.set_debug_loc(bx, self.terminator.source_info);
                 for &(tmp, size) in lifetime_ends_after_call {
                     bx.lifetime_end(tmp, size);
                 }
                 fx.store_return(bx, ret_dest, &fn_abi.ret, invokeret);
-
-                // If the return value was retagged as it was stored,
-                // then we might be in a different basic block now.
-                // Update the cached block for `target` to point to this new
-                // block, where codegen will continue.
-                fx.cached_llbbs[target] = CachedLlbb::Some(bx.llbb());
+                self.funclet_br(fx, bx, target, false, &[]);
             }
             MergingSucc::False
         } else {
@@ -1640,6 +1638,15 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
             }
 
             mir::TerminatorKind::Return => {
+                if let Some(handle) = self.coroutine_handle {
+                    if self.cx.sess().opts.unstable_opts.backend_coroutines {
+                        bx.coro_end(handle, false);
+                        bx.unreachable();
+                        return MergingSucc::False;
+                    } else {
+                        bx.coro_end(handle, false);
+                    }
+                }
                 self.codegen_return_terminator(bx);
                 MergingSucc::False
             }
@@ -1713,8 +1720,121 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
                     CallKind::Tail,
                     mergeable_succ(),
                 ),
-            mir::TerminatorKind::CoroutineDrop | mir::TerminatorKind::Yield { .. } => {
-                bug!("coroutine ops in codegen")
+            mir::TerminatorKind::CoroutineDrop => {
+                if !self.cx.sess().opts.unstable_opts.backend_coroutines {
+                    bug!("coroutine ops in codegen")
+                }
+                if let Some(handle) = self.coroutine_handle {
+                    let is_cleanup = self.mir[helper.bb].is_cleanup;
+                    bx.coro_end(handle, !is_cleanup);
+                }
+                if self.fn_abi.ret.layout.ty.is_raw_ptr() {
+                    let null_ptr = bx.const_null(bx.type_ptr());
+                    bx.ret(null_ptr);
+                } else {
+                    self.codegen_return_terminator(bx);
+                }
+                MergingSucc::False
+            }
+            mir::TerminatorKind::Yield { value: _, resume, resume_arg, drop } => {
+                if !self.cx.sess().opts.unstable_opts.backend_coroutines {
+                    bug!("coroutine ops in codegen")
+                }
+
+                let _handle = self.coroutine_handle.expect("no coroutine handle in coroutine");
+
+                // Note: The MIR transform already generated statements to copy the yielded value
+                // to the yield_out pointer (*_4 = value) BEFORE this Yield terminator!
+                let suspend_res = bx.coro_suspend_retcon();
+
+                let is_drop = bx.extract_value(suspend_res, 0);
+                let new_resume_arg = bx.extract_value(suspend_res, 1);
+                let new_yield_out = bx.extract_value(suspend_res, 2);
+                let new_return_out = bx.extract_value(suspend_res, 3);
+
+                let update_coroutine_local =
+                    |bx: &mut Bx,
+                     fx: &mut FunctionCx<'a, 'tcx, Bx>,
+                     local: mir::Local,
+                     op: OperandRef<'tcx, Bx::Value>| {
+                        match fx.locals[local] {
+                            LocalRef::Place(place) => {
+                                debug!(
+                                    "[RETCON YIELD UPDATE] block {:?}: storing updated local {:?} into Place alloca",
+                                    bb, local
+                                );
+                                op.val.store(bx, place);
+                            }
+                            _ => {
+                                debug!(
+                                    "[RETCON YIELD UPDATE] block {:?}: overwriting local {:?} with Operand",
+                                    bb, local
+                                );
+                                fx.overwrite_local(local, LocalRef::Operand(op));
+                            }
+                        }
+                    };
+
+                // Update the MIR argument allocas (_2, _3, _4, _5) with the new pointers
+                // so that subsequent basic blocks will read from the updated memory slots.
+                let drop_decl = &self.mir.local_decls[mir::Local::COROUTINE_ARG_DROP];
+                let drop_layout = bx.layout_of(self.monomorphize(drop_decl.ty));
+                let drop_op = OperandRef {
+                    val: OperandValue::Immediate(is_drop),
+                    layout: drop_layout,
+                    move_annotation: None,
+                };
+                update_coroutine_local(bx, self, mir::Local::COROUTINE_ARG_DROP, drop_op);
+
+                let resume_decl = &self.mir.local_decls[mir::Local::COROUTINE_ARG_RESUME];
+                let resume_layout = bx.layout_of(self.monomorphize(resume_decl.ty));
+                let resume_op = OperandRef {
+                    val: OperandValue::Immediate(new_resume_arg),
+                    layout: resume_layout,
+                    move_annotation: None,
+                };
+                update_coroutine_local(bx, self, mir::Local::COROUTINE_ARG_RESUME, resume_op);
+
+                let yield_decl = &self.mir.local_decls[mir::Local::COROUTINE_ARG_YIELD];
+                let yield_layout = bx.layout_of(self.monomorphize(yield_decl.ty));
+                let yield_op = OperandRef {
+                    val: OperandValue::Immediate(new_yield_out),
+                    layout: yield_layout,
+                    move_annotation: None,
+                };
+                update_coroutine_local(bx, self, mir::Local::COROUTINE_ARG_YIELD, yield_op);
+
+                let return_decl = &self.mir.local_decls[mir::Local::COROUTINE_ARG_RETURN];
+                let return_layout = bx.layout_of(self.monomorphize(return_decl.ty));
+                let return_op = OperandRef {
+                    val: OperandValue::Immediate(new_return_out),
+                    layout: return_layout,
+                    move_annotation: None,
+                };
+                update_coroutine_local(bx, self, mir::Local::COROUTINE_ARG_RETURN, return_op);
+
+                // Update the resume_arg local variable where the MIR expects the resume value to land.
+                let yield_resume_layout = bx.layout_of(
+                    self.monomorphize(resume_arg.ty(&self.mir.local_decls, bx.tcx()).ty),
+                );
+                let yield_resume_op = OperandRef {
+                    val: OperandValue::Immediate(new_resume_arg),
+                    layout: yield_resume_layout,
+                    move_annotation: None,
+                };
+                if resume_arg.projection.is_empty() {
+                    update_coroutine_local(bx, self, resume_arg.local, yield_resume_op);
+                } else {
+                    debug!(
+                        "[RETCON YIELD UPDATE] block {:?}: storing updated resume_arg projection {:?} into Place",
+                        bb, resume_arg
+                    );
+                    let cg_place = self.codegen_place(bx, resume_arg.as_ref());
+                    yield_resume_op.val.store(bx, cg_place);
+                }
+
+                bx.cond_br(is_drop, self.llbb(drop.unwrap()), self.llbb(resume));
+                MergingSucc::False
             }
             mir::TerminatorKind::FalseEdge { .. } | mir::TerminatorKind::FalseUnwind { .. } => {
                 bug!("borrowck false edges in codegen")

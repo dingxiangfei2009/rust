@@ -978,6 +978,7 @@ impl<'tcx> Stable<'tcx> for ty::Instance<'tcx> {
             }
             ty::InstanceKind::Shim(..) => crate::mir::mono::InstanceKind::Shim,
         };
+
         crate::mir::mono::Instance { def, kind }
     }
 }

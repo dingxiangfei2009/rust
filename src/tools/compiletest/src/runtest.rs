@@ -1505,6 +1505,9 @@ impl<'test> TestCx<'test> {
         }
 
         let (Output { status, stdout, stderr }, truncated) = self.read2_abbreviated(child);
+        if !status.success() {
+            eprintln!("DEBUG COMPILETEST FAILED:\nCOMMAND: {command:?}\nSTATUS: {status:?}");
+        }
 
         let result = ProcRes {
             status,

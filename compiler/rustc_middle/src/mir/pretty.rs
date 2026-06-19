@@ -238,7 +238,9 @@ impl<'a, 'tcx> MirDumper<'a, 'tcx> {
                 }));
                 s
             }
-            ty::InstanceKind::Shim(ty::ShimKind::AsyncDropGlue(_, ty)) => {
+            ty::InstanceKind::Shim(
+                ty::ShimKind::AsyncDropGlue(_, ty) | ty::ShimKind::AsyncDropGlueResume(_, ty),
+            ) => {
                 let ty::Coroutine(_, args) = ty.kind() else {
                     bug!();
                 };

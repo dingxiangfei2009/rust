@@ -257,14 +257,28 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
                     let op = self.codegen_operand(bx, operand);
                     // Do not generate stores and GEPis for zero-sized fields.
                     if !op.layout.is_zst() {
-                        let field_index = active_field_index.unwrap_or(i);
+                        let field_index = active_field_index.unwrap_or(i).as_usize();
                         let field = if let mir::AggregateKind::Array(_) = **kind {
-                            let llindex = bx.cx().const_usize(field_index.as_u32().into());
+                            let llindex = bx.cx().const_usize(field_index as u64);
                             variant_dest.project_index(bx, llindex)
                         } else {
-                            variant_dest.project_field(bx, field_index.as_usize())
+                            variant_dest.project_field(bx, field_index)
                         };
                         op.store_with_annotation(bx, field);
+                    }
+                }
+                if let mir::AggregateKind::Coroutine(def_id, args) = **kind {
+                    let args = self.monomorphize(args);
+                    if mir::CoroutineInfo::is_retcon(bx.cx().tcx(), def_id) {
+                        let ramp_instance = mir::CoroutineInfo::backend_coroutine_ramp_instance(
+                            bx.cx().tcx(),
+                            def_id,
+                            args,
+                        );
+                        let fn_ptr = bx.cx().get_fn_addr(ramp_instance, None);
+                        let cont_ptr_idx = args.as_coroutine().upvar_tys().len();
+                        let field = variant_dest.project_field(bx, cont_ptr_idx);
+                        bx.store(fn_ptr, field.val.llval, field.val.align);
                     }
                 }
                 dest.codegen_set_discr(bx, variant_index);

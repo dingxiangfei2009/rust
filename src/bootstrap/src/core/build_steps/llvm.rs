@@ -174,7 +174,20 @@ pub fn prebuilt_llvm_config(
 
     let stamp = BuildStamp::new(&out_dir).with_prefix("llvm").add_stamp(smart_stamp_hash);
 
-    if stamp.is_up_to_date() {
+    let check_newer = |rel_path: &str| {
+        let mtime_stamp = std::fs::metadata(stamp.path()).and_then(|m| m.modified()).ok();
+        let mtime_file =
+            std::fs::metadata(&builder.config.src.join(rel_path)).and_then(|m| m.modified()).ok();
+        match (mtime_stamp, mtime_file) {
+            (Some(s), Some(f)) => f > s,
+            _ => false,
+        }
+    };
+    let cpp_newer =
+        check_newer("src/llvm-project/llvm/lib/Transforms/Scalar/LowerExpectIntrinsic.cpp")
+            || check_newer("src/llvm-project/llvm/lib/Transforms/Coroutines/CoroFrame.cpp");
+
+    if !cpp_newer && stamp.is_up_to_date() {
         if stamp.stamp().is_empty() {
             builder.info(
                 "Could not determine the LLVM submodule commit hash. \

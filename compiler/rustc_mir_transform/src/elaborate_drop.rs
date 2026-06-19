@@ -3,6 +3,7 @@ use std::{fmt, iter, mem};
 use itertools::Itertools;
 use rustc_abi::{FIRST_VARIANT, FieldIdx, VariantIdx};
 use rustc_data_structures::thin_vec::ThinVec;
+use rustc_hir::def_id::DefId;
 use rustc_hir::lang_items::LangItem;
 use rustc_hir::{CoroutineDesugaring, CoroutineKind};
 use rustc_index::Idx;
@@ -1004,6 +1005,71 @@ where
         self.drop_ladder(fields, succ, unwind, dropline).0
     }
 
+    #[instrument(level = "debug", skip(self), ret)]
+    fn open_drop_for_retcon_coroutine(
+        &mut self,
+        _def_id: DefId,
+        args: GenericArgsRef<'tcx>,
+    ) -> BasicBlock {
+        let upvar_tys = args.as_coroutine().upvar_tys();
+        let cont_field_idx = FieldIdx::from_usize(upvar_tys.len());
+        let ptr_ty = Ty::new_mut_ptr(self.tcx(), self.tcx().types.u8);
+        let cont_place = self.tcx().mk_place_field(self.place, cont_field_idx, ptr_ty);
+
+        let local_cont = self.new_temp(ptr_ty);
+        let local_null = self.new_temp(ptr_ty);
+        let local_is_null = self.new_temp(self.tcx().types.bool);
+
+        let drop_tuple_block = self.open_drop_for_tuple(upvar_tys);
+
+        let stmts = vec![
+            Statement::new(
+                self.source_info,
+                StatementKind::Assign(Box::new((
+                    Place::from(local_cont),
+                    Rvalue::Use(Operand::Copy(cont_place), WithRetag::No),
+                ))),
+            ),
+            Statement::new(
+                self.source_info,
+                StatementKind::Assign(Box::new((
+                    Place::from(local_null),
+                    Rvalue::Cast(
+                        CastKind::PointerWithExposedProvenance,
+                        Operand::Constant(Box::new(ConstOperand {
+                            span: self.source_info.span,
+                            user_ty: None,
+                            const_: Const::from_usize(self.tcx(), 0),
+                        })),
+                        ptr_ty,
+                    ),
+                ))),
+            ),
+            Statement::new(
+                self.source_info,
+                StatementKind::Assign(Box::new((
+                    Place::from(local_is_null),
+                    Rvalue::BinaryOp(
+                        rustc_middle::mir::BinOp::Eq,
+                        Box::new((
+                            Operand::Copy(Place::from(local_cont)),
+                            Operand::Copy(Place::from(local_null)),
+                        )),
+                    ),
+                ))),
+            ),
+        ];
+
+        self.new_block_with_statements(
+            self.unwind,
+            stmts,
+            TerminatorKind::SwitchInt {
+                discr: Operand::Move(Place::from(local_is_null)),
+                targets: SwitchTargets::new(std::iter::once((1, self.succ)), drop_tuple_block),
+            },
+        )
+    }
+
     /// Drops the T contained in a `Box<T>` if it has not been moved out of
     #[instrument(level = "debug", ret)]
     fn open_drop_for_box_contents(
@@ -1541,7 +1607,13 @@ where
             // This should only happen for the self argument on the resume function.
             // It effectively only contains upvars until the coroutine transformation runs.
             // See librustc_body/transform/coroutine.rs for more details.
-            ty::Coroutine(_, args) => self.open_drop_for_tuple(args.as_coroutine().upvar_tys()),
+            ty::Coroutine(def_id, args) => {
+                if self.tcx().sess.opts.unstable_opts.backend_coroutines {
+                    self.open_drop_for_retcon_coroutine(*def_id, args)
+                } else {
+                    self.open_drop_for_tuple(args.as_coroutine().upvar_tys())
+                }
+            }
             ty::Tuple(fields) => self.open_drop_for_tuple(fields),
             ty::Adt(def, args) => self.open_drop_for_adt(*def, args),
             ty::Dynamic(..) => self.complete_drop(self.succ, self.unwind),

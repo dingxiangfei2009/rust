@@ -1,7 +1,8 @@
 //@ run-pass
 
-//@ revisions: default nomiropt
+//@ revisions: default nomiropt retcon
 //@[nomiropt]compile-flags: -Z mir-opt-level=0
+//@[retcon]compile-flags: -Z backend-coroutines
 
 #![feature(coroutines, coroutine_trait, stmt_expr_attributes)]
 

@@ -320,6 +320,8 @@ language_item_table! {
     PanicAsyncFnResumedDrop, sym::panic_const_async_fn_resumed_drop, panic_const_async_fn_resumed_drop, Target::Fn, GenericRequirement::None;
     PanicAsyncGenFnResumedDrop, sym::panic_const_async_gen_fn_resumed_drop, panic_const_async_gen_fn_resumed_drop, Target::Fn, GenericRequirement::None;
     PanicGenFnNoneDrop, sym::panic_const_gen_fn_none_drop, panic_const_gen_fn_none_drop, Target::Fn, GenericRequirement::None;
+    CoroutineAllocPanic, sym::coroutine_alloc_panic, coroutine_alloc_panic, Target::Fn, GenericRequirement::None;
+    CoroutineDeallocPanic, sym::coroutine_dealloc_panic, coroutine_dealloc_panic, Target::Fn, GenericRequirement::None;
     /// libstd panic entry point. Necessary for const eval to be able to catch it
     BeginPanic,              sym::begin_panic,         begin_panic_fn,             Target::Fn,             GenericRequirement::None;
 

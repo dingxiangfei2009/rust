@@ -98,6 +98,15 @@ pub struct FunctionCx<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> {
     /// block, indexed by the cleanup block that is the funclet's head.
     terminate_blocks: IndexVec<mir::BasicBlock, Option<(Bx::BasicBlock, UnwindTerminateReason)>>,
 
+    /// The coroutine handle if this is a coroutine being codegen'd with backend coroutines
+    coroutine_handle: Option<Bx::Value>,
+
+    /// The local representing the raw coroutine pointer (*mut Coroutine) in the state machine
+    coroutine_raw_ptr_local: Option<mir::Local>,
+
+    /// A flag indicating if this coroutine has at least one suspend/yield point
+    coroutine_has_suspends: bool,
+
     /// A bool flag for each basic block indicating whether it is a cold block.
     /// A cold block is a block that is unlikely to be executed at runtime.
     cold_blocks: IndexVec<mir::BasicBlock, bool>,
@@ -204,17 +213,26 @@ pub fn codegen_mir<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>>(
     cx: &'a Bx::CodegenCx,
     instance: Instance<'tcx>,
 ) {
+    let llfn = cx.get_fn(instance);
+    let fn_abi = cx.fn_abi_of_instance(instance, ty::List::empty());
+    codegen_mir_with_overrides::<Bx>(cx, instance, llfn, fn_abi)
+}
+
+#[instrument(level = "debug", skip(cx))]
+pub fn codegen_mir_with_overrides<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>>(
+    cx: &'a Bx::CodegenCx,
+    instance: Instance<'tcx>,
+    llfn: Bx::Function,
+    fn_abi: &'tcx FnAbi<'tcx, Ty<'tcx>>,
+) {
     assert!(!instance.args.has_infer());
 
     let tcx = cx.tcx();
-    let llfn = cx.get_fn(instance);
-
     let mut mir = tcx.instance_mir(instance.def);
     // Note that the ABI logic has deduced facts about the functions' parameters based on the MIR we
     // got here (`deduce_param_attrs`). That means we can *not* apply arbitrary further MIR
     // transforms as that may invalidate those deduced facts!
 
-    let fn_abi = cx.fn_abi_of_instance(instance, ty::List::empty());
     debug!("fn_abi: {:?}", fn_abi);
 
     let nop_landing_pads = rustc_mir_transform::remove_noop_landing_pads::find_noop_landing_pads(
@@ -256,10 +274,18 @@ pub fn codegen_mir<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>>(
             })
             .collect();
 
+    let coroutine_has_suspends = mir
+        .basic_blocks
+        .iter()
+        .any(|bb| matches!(bb.terminator().kind, mir::TerminatorKind::Yield { .. }));
+
     let mut fx = FunctionCx {
         instance,
         mir,
         llfn,
+        coroutine_handle: None,
+        coroutine_raw_ptr_local: None,
+        coroutine_has_suspends,
         fn_abi,
         cx,
         personality_slot: None,
@@ -281,6 +307,44 @@ pub fn codegen_mir<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>>(
     // evaluate; however, the `MirUsedCollector` already did that during the collection phase of
     // monomorphization, and if there is an error during collection then codegen never starts -- so
     // we don't have to do it again.
+
+    if cx.sess().opts.unstable_opts.backend_coroutines && mir.coroutine.is_some() {
+        let coroutine_ty = match instance.def {
+            ty::InstanceKind::Shim(ty::ShimKind::CoroutineRamp { coroutine_def_id }) => {
+                let unnorm = tcx.type_of(coroutine_def_id).instantiate(tcx, instance.args);
+                Some(tcx.normalize_erasing_regions(cx.typing_env(), unnorm))
+            }
+            ty::InstanceKind::Shim(ty::ShimKind::AsyncDropGlueResume(_, proxy_ty)) => Some(
+                tcx.normalize_erasing_regions(cx.typing_env(), ty::Unnormalized::dummy(proxy_ty)),
+            ),
+            _ => None,
+        };
+        if coroutine_ty.is_some() {
+            // Lock retcon inline storage size (`Id->getStorageSize()`) to 0 as an uncompromisable tripwire against spilling.
+            // do not ever change the size parameter, this is part of the design and it is not negotiable.
+            let size = start_bx.const_u32(0);
+            // this is also part of the design and not negotiable.
+            let align = start_bx.const_u32(1);
+            let ptr = start_bx.get_param(0);
+            let buffer = ptr;
+
+            let sym = tcx.symbol_name(instance).name;
+            let prototype_name = format!("retcon.prototype.{}", sym);
+            let coro_id = start_bx.coro_id_retcon(size, align, buffer, &prototype_name);
+            let coro_handle = start_bx.coro_begin(coro_id, buffer);
+            fx.coroutine_handle = Some(coro_handle);
+
+            let local_coro_ptr_idx = mir
+                .local_decls
+                .iter_enumerated()
+                .find(|(_, decl)| {
+                    decl.ty.is_mutable_ptr()
+                        && decl.ty.builtin_deref(true).map_or(false, |t| t.is_coroutine())
+                })
+                .map(|(idx, _)| idx);
+            fx.coroutine_raw_ptr_local = local_coro_ptr_idx;
+        }
+    }
 
     fx.fill_function_debug_context(&mut start_bx);
 
@@ -339,7 +403,8 @@ pub fn codegen_mir<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>>(
                     PassMode::Cast { ref cast, .. } => {
                         debug!("alloc: {:?} (return place) -> place", local);
                         let size = cast.size(&start_bx).max(layout.size);
-                        return LocalRef::Place(PlaceRef::alloca_size(&mut start_bx, size, layout));
+                        let place = PlaceRef::alloca_size(&mut start_bx, size, layout);
+                        return LocalRef::Place(place);
                     }
                     _ => {}
                 };
@@ -347,11 +412,12 @@ pub fn codegen_mir<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>>(
 
             if memory_locals.contains(local) {
                 debug!("alloc: {:?} -> place", local);
-                if layout.is_unsized() {
+                let place = if layout.is_unsized() {
                     LocalRef::UnsizedPlace(PlaceRef::alloca_unsized_indirect(&mut start_bx, layout))
                 } else {
                     LocalRef::Place(PlaceRef::alloca(&mut start_bx, layout))
-                }
+                };
+                place
             } else {
                 debug!("alloc: {:?} -> operand", local);
                 LocalRef::new_operand(layout)
@@ -541,7 +607,13 @@ fn arg_local_refs<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>>(
                         return local(OperandRef::zero_sized(arg.layout));
                     }
                     PassMode::Direct(_) => {
-                        let llarg = bx.get_param(llarg_idx);
+                        let mut llarg = bx.get_param(llarg_idx);
+                        if arg_index == 0
+                            && fx.coroutine_handle.is_some()
+                            && fx.coroutine_has_suspends
+                        {
+                            llarg = fx.coroutine_handle.unwrap();
+                        }
                         llarg_idx += 1;
                         debug_assert!(arg.layout.backend_repr.is_scalar_or_simd());
                         return local(OperandRef {

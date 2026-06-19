@@ -20,15 +20,45 @@ use crate::deref_separator::deref_finder;
 use crate::elaborate_drop::{DropElaborator, DropFlagMode, DropStyle, Unwind, elaborate_drop};
 use crate::patch::MirPatch;
 use crate::{
-    abort_unwinding_calls, add_call_guards, add_moves_for_packed_drops, inline, instsimplify,
-    mentioned_items, pass_manager as pm, remove_noop_landing_pads, run_optimization_passes,
-    simplify,
+    MirPass, abort_unwinding_calls, add_call_guards, add_moves_for_packed_drops, inline,
+    instsimplify, mentioned_items, pass_manager as pm, remove_noop_landing_pads,
+    run_optimization_passes, simplify,
 };
 
 mod async_destructor_ctor;
 
 pub(super) fn provide(providers: &mut Providers) {
     providers.mir_shims = make_shim;
+}
+
+pub(super) fn get_coroutine_body<'tcx>(tcx: TyCtxt<'tcx>, coroutine_def_id: DefId) -> Body<'tcx> {
+    let mut coroutine_body = tcx.optimized_mir(coroutine_def_id).clone();
+    if tcx.sess.opts.unstable_opts.backend_coroutines
+        && coroutine_body.coroutine_ramp().is_none()
+        && coroutine_body.coroutine_drop().is_none()
+        && coroutine_body.coroutine_drop_async().is_none()
+    {
+        crate::coroutine::BackendCoroutineTransform.run_pass(tcx, &mut coroutine_body);
+    }
+    coroutine_body
+}
+
+fn run_continuation_cleanup_passes<'tcx>(tcx: TyCtxt<'tcx>, body: &mut Body<'tcx>) {
+    pm::run_passes(
+        tcx,
+        body,
+        &[
+            &crate::remove_zsts::RemoveZsts,
+            &crate::remove_unneeded_drops::RemoveUnneededDrops,
+            &simplify::SimplifyLocals::BeforeConstProp,
+            &crate::dead_store_elimination::DeadStoreElimination::Initial,
+            &crate::dead_store_elimination::DeadStoreElimination::Final,
+            &simplify::SimplifyLocals::Final,
+            &simplify::SimplifyCfg::Final,
+        ],
+        None,
+        pm::Optimizations::Allowed,
+    );
 }
 
 fn make_shim<'tcx>(tcx: TyCtxt<'tcx>, shim: ty::ShimKind<'tcx>) -> Body<'tcx> {
@@ -78,51 +108,87 @@ fn make_shim<'tcx>(tcx: TyCtxt<'tcx>, shim: ty::ShimKind<'tcx>) -> Body<'tcx> {
             build_construct_coroutine_by_move_shim(tcx, coroutine_closure_def_id, receiver_by_ref)
         }
 
+        ty::ShimKind::CoroutineRamp { coroutine_def_id } => {
+            let coroutine_body = get_coroutine_body(tcx, coroutine_def_id);
+            let mut body = coroutine_body.coroutine_ramp().unwrap().clone();
+            run_continuation_cleanup_passes(tcx, &mut body);
+            if let Some(dumper) = rustc_middle::mir::MirDumper::new(tcx, "coroutine_ramp", &body) {
+                dumper.dump_mir(&body);
+            }
+            return body;
+        }
+
         ty::ShimKind::DropGlue(def_id, ty) => {
             // FIXME(#91576): Drop shims for coroutines aren't subject to the MIR passes at the end
             // of this function. Is this intentional?
+            let mut is_async_drop_proxy = false;
             if let Some(&ty::Coroutine(coroutine_def_id, args)) = ty.map(Ty::kind) {
-                let coroutine_body = tcx.optimized_mir(coroutine_def_id);
+                if tcx.sess.opts.unstable_opts.backend_coroutines
+                    && tcx.is_async_drop_in_place_coroutine(coroutine_def_id)
+                {
+                    if !args.type_at(0).is_coroutine() {
+                        let body = make_shim(
+                            tcx,
+                            ty::ShimKind::AsyncDropGlue(coroutine_def_id, ty.unwrap()),
+                        );
+                        let drop_body = body.coroutine_drop().unwrap().clone();
+                        if let Some(dumper) =
+                            rustc_middle::mir::MirDumper::new(tcx, "coroutine_drop", &drop_body)
+                        {
+                            dumper.dump_mir(&drop_body);
+                        }
+                        return drop_body;
+                    } else {
+                        is_async_drop_proxy = true;
+                    }
+                }
+                if !is_async_drop_proxy {
+                    let coroutine_body = get_coroutine_body(tcx, coroutine_def_id);
 
-                let ty::Coroutine(_, id_args) = *tcx.type_of(coroutine_def_id).skip_binder().kind()
-                else {
-                    bug!()
-                };
+                    let ty::Coroutine(_, id_args) =
+                        *tcx.type_of(coroutine_def_id).skip_binder().kind()
+                    else {
+                        bug!()
+                    };
 
-                // If this is a regular coroutine, grab its drop shim. If this is a coroutine
-                // that comes from a coroutine-closure, and the kind ty differs from the "maximum"
-                // kind that it supports, then grab the appropriate drop shim. This ensures that
-                // the future returned by `<[coroutine-closure] as AsyncFnOnce>::call_once` will
-                // drop the coroutine-closure's upvars.
-                let body = if id_args.as_coroutine().kind_ty() == args.as_coroutine().kind_ty() {
-                    coroutine_body.coroutine_drop().unwrap()
-                } else {
-                    assert_eq!(
-                        args.as_coroutine().kind_ty().to_opt_closure_kind().unwrap(),
-                        ty::ClosureKind::FnOnce
+                    // If this is a regular coroutine, grab its drop shim. If this is a coroutine
+                    // that comes from a coroutine-closure, and the kind ty differs from the "maximum"
+                    // kind that it supports, then grab the appropriate drop shim. This ensures that
+                    // the future returned by `<[coroutine-closure] as AsyncFnOnce>::call_once` will
+                    // drop the coroutine-closure's upvars.
+                    let body = if id_args.as_coroutine().kind_ty() == args.as_coroutine().kind_ty()
+                    {
+                        coroutine_body.coroutine_drop().unwrap().clone()
+                    } else {
+                        assert_eq!(
+                            args.as_coroutine().kind_ty().to_opt_closure_kind().unwrap(),
+                            ty::ClosureKind::FnOnce
+                        );
+                        get_coroutine_body(tcx, tcx.coroutine_by_move_body_def_id(coroutine_def_id))
+                            .coroutine_drop()
+                            .unwrap()
+                            .clone()
+                    };
+
+                    let mut body =
+                        EarlyBinder::bind(tcx, body.clone()).instantiate(tcx, args).skip_norm_wip();
+                    debug!("make_shim({:?}) = {:?}", shim, body);
+
+                    if body.mentioned_items.is_none() {
+                        pm::MirPass::run_pass(&mentioned_items::MentionedItems, tcx, &mut body);
+                    }
+                    pm::run_passes(
+                        tcx,
+                        &mut body,
+                        &[
+                            &abort_unwinding_calls::AbortUnwindingCalls,
+                            &add_call_guards::CriticalCallEdges,
+                        ],
+                        Some(MirPhase::Runtime(RuntimePhase::Optimized)),
+                        pm::Optimizations::Allowed,
                     );
-                    tcx.optimized_mir(tcx.coroutine_by_move_body_def_id(coroutine_def_id))
-                        .coroutine_drop()
-                        .unwrap()
-                };
-
-                let mut body =
-                    EarlyBinder::bind(tcx, body.clone()).instantiate(tcx, args).skip_norm_wip();
-                debug!("make_shim({:?}) = {:?}", shim, body);
-
-                pm::run_passes(
-                    tcx,
-                    &mut body,
-                    &[
-                        &mentioned_items::MentionedItems,
-                        &abort_unwinding_calls::AbortUnwindingCalls,
-                        &add_call_guards::CriticalCallEdges,
-                    ],
-                    Some(MirPhase::Runtime(RuntimePhase::Optimized)),
-                    pm::Optimizations::Allowed,
-                );
-
-                return body;
+                    return body;
+                }
             }
 
             build_drop_shim(tcx, def_id, ty, ty::TypingEnv::post_analysis(tcx, def_id))
@@ -131,6 +197,9 @@ fn make_shim<'tcx>(tcx: TyCtxt<'tcx>, shim: ty::ShimKind<'tcx>) -> Body<'tcx> {
         ty::ShimKind::Clone(def_id, ty) => build_clone_shim(tcx, def_id, ty),
         ty::ShimKind::FnPtrAddr(def_id, ty) => build_fn_ptr_addr_shim(tcx, def_id, ty),
         ty::ShimKind::FutureDropPoll(def_id, proxy_ty, impl_ty) => {
+            if tcx.sess.opts.unstable_opts.backend_coroutines || !impl_ty.is_coroutine() {
+                return make_shim(tcx, ty::ShimKind::AsyncDropGlue(def_id, proxy_ty));
+            }
             let mut body =
                 async_destructor_ctor::build_future_drop_poll_shim(tcx, def_id, proxy_ty, impl_ty);
 
@@ -172,6 +241,22 @@ fn make_shim<'tcx>(tcx: TyCtxt<'tcx>, shim: ty::ShimKind<'tcx>) -> Body<'tcx> {
             return body;
         }
 
+        ty::ShimKind::AsyncDropGlueResume(def_id, ty) => {
+            let ty::Coroutine(_, args) = ty.kind() else { bug!() };
+            if !tcx.sess.opts.unstable_opts.backend_coroutines && args.type_at(0).is_coroutine() {
+                return make_shim(tcx, ty::ShimKind::FutureDropPoll(def_id, ty, args.type_at(0)));
+            }
+            let async_drop_glue = make_shim(tcx, ty::ShimKind::AsyncDropGlue(def_id, ty));
+            let mut body = async_drop_glue.coroutine_ramp().unwrap().clone();
+            run_continuation_cleanup_passes(tcx, &mut body);
+            if let Some(dumper) =
+                rustc_middle::mir::MirDumper::new(tcx, "async_drop_glue_resume", &body)
+            {
+                dumper.dump_mir(&body);
+            }
+            return body;
+        }
+
         ty::ShimKind::AsyncDropGlueCtor(def_id, ty) => {
             let body = async_destructor_ctor::build_async_destructor_ctor_shim(tcx, def_id, ty);
             debug!("make_shim({:?}) = {:?}", shim, body);
@@ -182,6 +267,10 @@ fn make_shim<'tcx>(tcx: TyCtxt<'tcx>, shim: ty::ShimKind<'tcx>) -> Body<'tcx> {
 
     deref_finder(tcx, &mut result, false);
 
+    if result.mentioned_items.is_none() {
+        pm::MirPass::run_pass(&mentioned_items::MentionedItems, tcx, &mut result);
+    }
+
     // We don't validate MIR here because the shims may generate code that's
     // only valid in a `PostAnalysis` param-env. However, since we do initial
     // validation with the MirBuilt phase, which uses a user-facing param-env.
@@ -190,7 +279,6 @@ fn make_shim<'tcx>(tcx: TyCtxt<'tcx>, shim: ty::ShimKind<'tcx>) -> Body<'tcx> {
         tcx,
         &mut result,
         &[
-            &mentioned_items::MentionedItems,
             &add_moves_for_packed_drops::AddMovesForPackedDrops,
             &remove_noop_landing_pads::RemoveNoopLandingPads,
             &simplify::SimplifyCfg::MakeShim,
@@ -266,7 +354,11 @@ pub fn build_drop_shim<'tcx>(
 ) -> Body<'tcx> {
     debug!("build_drop_shim(def_id={:?}, ty={:?})", def_id, ty);
 
-    assert!(!matches!(ty, Some(ty) if ty.is_coroutine()));
+    if let Some(ty) = ty
+        && let ty::Coroutine(cor_def_id, _) = *ty.kind()
+    {
+        assert!(tcx.is_async_drop_in_place_coroutine(cor_def_id));
+    }
 
     let args = if let Some(ty) = ty {
         tcx.mk_args(&[ty.into()])
@@ -372,7 +464,7 @@ pub fn build_drop_shim<'tcx>(
     body
 }
 
-fn new_body<'tcx>(
+pub(crate) fn new_body<'tcx>(
     source: MirSource<'tcx>,
     basic_blocks: IndexVec<BasicBlock, BasicBlockData<'tcx>>,
     local_decls: IndexVec<Local, LocalDecl<'tcx>>,

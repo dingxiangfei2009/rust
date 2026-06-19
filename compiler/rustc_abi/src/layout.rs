@@ -252,6 +252,7 @@ impl<Cx: HasDataLayout> LayoutCalculator<Cx> {
         variant_fields: &IndexSlice<VariantIdx, IndexVec<FieldIdx, LocalIdx>>,
         storage_conflicts: &BitMatrix<LocalIdx, LocalIdx>,
         tag_to_layout: impl Fn(Scalar) -> F,
+        repr: &ReprOptions,
     ) -> LayoutCalculatorResult<FieldIdx, VariantIdx, F> {
         coroutine::layout(
             self,
@@ -260,6 +261,7 @@ impl<Cx: HasDataLayout> LayoutCalculator<Cx> {
             variant_fields,
             storage_conflicts,
             tag_to_layout,
+            repr,
         )
     }
 

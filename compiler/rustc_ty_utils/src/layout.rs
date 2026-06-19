@@ -573,12 +573,31 @@ fn layout_of_uncached<'tcx>(
                 })
                 .try_collect::<IndexVec<_, _>>()?;
 
-            let prefix_layouts = args
-                .as_coroutine()
-                .upvar_tys()
-                .iter()
-                .map(|ty| cx.layout_of(ty))
-                .try_collect::<IndexVec<_, _>>()?;
+            let mut prefix_layouts: IndexVec<_, _> =
+                args.as_coroutine().upvar_tys().iter().map(|ty| cx.layout_of(ty)).try_collect()?;
+
+            let is_retcon_coroutine = cx.tcx().sess.opts.unstable_opts.backend_coroutines
+                && matches!(
+                    cx.tcx().coroutine_kind(def_id),
+                    Some(
+                        rustc_hir::CoroutineKind::Coroutine(_)
+                            | rustc_hir::CoroutineKind::Desugared(
+                                rustc_hir::CoroutineDesugaring::Async
+                                    | rustc_hir::CoroutineDesugaring::Gen,
+                                _
+                            )
+                    )
+                );
+
+            if is_retcon_coroutine {
+                let ptr_ty = Ty::new_mut_ptr(cx.tcx(), cx.tcx().types.u8);
+                prefix_layouts.push(cx.layout_of(ptr_ty)?);
+            }
+
+            let mut repr = rustc_abi::ReprOptions::default();
+            if is_retcon_coroutine {
+                repr.flags.insert(rustc_abi::ReprFlags::IS_LINEAR);
+            }
 
             let layout = cx
                 .calc
@@ -591,6 +610,7 @@ fn layout_of_uncached<'tcx>(
                         ty: tag.primitive().to_ty(tcx),
                         layout: tcx.mk_layout(LayoutData::scalar(cx, tag)),
                     },
+                    &repr,
                 )
                 .map(|mut layout| {
                     // this is similar to how ReprOptions populates its field_shuffle_seed

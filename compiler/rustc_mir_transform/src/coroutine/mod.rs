@@ -51,8 +51,9 @@
 //! Otherwise it drops all the values in scope at the last suspension point.
 
 mod by_move_body;
-mod drop;
+pub(crate) mod drop;
 mod layout;
+mod shim;
 
 pub(super) use by_move_body::coroutine_by_move_body_def_id;
 use drop::{
@@ -148,7 +149,11 @@ impl<'tcx> MutVisitor<'tcx> for SelfArgVisitor<'tcx> {
 }
 
 #[tracing::instrument(level = "trace", skip(tcx))]
-fn replace_base<'tcx>(place: &mut Place<'tcx>, new_base: Place<'tcx>, tcx: TyCtxt<'tcx>) {
+pub(crate) fn replace_base<'tcx>(
+    place: &mut Place<'tcx>,
+    new_base: Place<'tcx>,
+    tcx: TyCtxt<'tcx>,
+) {
     place.local = new_base.local;
 
     let mut new_projection = new_base.projection.to_vec();
@@ -1118,6 +1123,19 @@ impl<'tcx> crate::MirPass<'tcx> for StateTransform {
 
         let can_return = can_return(tcx, body, body.typing_env(tcx));
 
+        if matches!(
+            coroutine_kind,
+            CoroutineKind::Coroutine(_)
+                | CoroutineKind::Desugared(
+                    CoroutineDesugaring::Async | CoroutineDesugaring::Gen,
+                    _
+                )
+        ) && tcx.sess.opts.unstable_opts.backend_coroutines
+        {
+            // Backend coroutines are handled by BackendCoroutineTransform instead.
+            return;
+        }
+
         // We rename RETURN_PLACE which has type mir.return_ty to new_ret_local
         // RETURN_PLACE then is a fresh unused local with type ret_ty.
         let new_ret_local = body.local_decls.push(LocalDecl::new(new_ret_ty, body.span));
@@ -1217,6 +1235,63 @@ impl<'tcx> crate::MirPass<'tcx> for StateTransform {
 
         // Create the Coroutine::resume / Future::poll function
         create_coroutine_resume_function(tcx, transform, body, can_return, can_unwind);
+    }
+
+    fn is_required(&self) -> bool {
+        true
+    }
+}
+
+pub(super) struct BackendCoroutineTransform;
+
+impl<'tcx> crate::MirPass<'tcx> for BackendCoroutineTransform {
+    #[instrument(level = "debug", skip(self, tcx, body), ret)]
+    fn run_pass(&self, tcx: TyCtxt<'tcx>, body: &mut Body<'tcx>) {
+        let Some(coroutine_kind) = body.coroutine_kind() else { return };
+        // AsyncGen is excluded because its ramp function requires constructing
+        // doubly-nested Poll<Option<T>>, which is not yet implemented.
+        // Adding AsyncGen support requires only a new match arm in
+        // transform_into_ramp_function; the resume shim and drop shim are kind-agnostic.
+        if !tcx.sess.opts.unstable_opts.backend_coroutines
+            || !matches!(
+                coroutine_kind,
+                CoroutineKind::Coroutine(_)
+                    | CoroutineKind::Desugared(
+                        CoroutineDesugaring::Async | CoroutineDesugaring::Gen,
+                        _
+                    )
+            )
+        {
+            return;
+        }
+        if body.coroutine.as_ref().is_some_and(|c| c.coroutine_ramp.is_some()) {
+            return;
+        }
+
+        let always_live_locals = always_storage_live_locals(body);
+        let movable = coroutine_kind.movability() == hir::Movability::Movable;
+        let liveness_info =
+            locals_live_across_suspend_points(tcx, body, &always_live_locals, movable);
+
+        let (remap, layout, _storage_liveness) = compute_layout(liveness_info, body);
+        let mut coroutine_ty = body.local_decls.raw[1].ty;
+        while let ty::Ref(_, inner, _) = *coroutine_ty.kind() {
+            coroutine_ty = inner;
+        }
+        if let ty::Adt(adt, args) = *coroutine_ty.kind() {
+            if tcx.is_lang_item(adt.did(), hir::LangItem::Pin) {
+                coroutine_ty = args.type_at(0);
+                while let ty::Ref(_, inner, _) = *coroutine_ty.kind() {
+                    coroutine_ty = inner;
+                }
+            }
+        }
+        assert!(
+            matches!(coroutine_ty.kind(), ty::Coroutine(..)),
+            "expected coroutine ty, got {coroutine_ty:?}"
+        );
+
+        shim::transform_backend_coroutine(tcx, body, remap, layout, coroutine_ty);
     }
 
     fn is_required(&self) -> bool {

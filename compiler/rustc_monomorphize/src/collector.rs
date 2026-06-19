@@ -797,6 +797,19 @@ impl<'a, 'tcx> MirVisitor<'tcx> for MirUsedCollector<'a, 'tcx> {
                     self.used_items.push(respan(span, MonoItem::Static(def_id)));
                 }
             }
+            mir::Rvalue::Aggregate(ref kind, _) => {
+                if let mir::AggregateKind::Coroutine(def_id, args) = **kind {
+                    if mir::CoroutineInfo::is_retcon(self.tcx, def_id) {
+                        let mono_args = self.monomorphize(args);
+                        let instance = mir::CoroutineInfo::backend_coroutine_ramp_instance(
+                            self.tcx, def_id, mono_args,
+                        );
+                        if self.tcx.should_codegen_locally(instance) {
+                            self.used_items.push(create_fn_mono_item(self.tcx, instance, span));
+                        }
+                    }
+                }
+            }
             _ => { /* not interesting */ }
         }
 
@@ -917,10 +930,14 @@ impl<'a, 'tcx> MirVisitor<'tcx> for MirUsedCollector<'a, 'tcx> {
             | mir::TerminatorKind::UnwindResume
             | mir::TerminatorKind::Return
             | mir::TerminatorKind::Unreachable => {}
-            mir::TerminatorKind::CoroutineDrop
-            | mir::TerminatorKind::Yield { .. }
-            | mir::TerminatorKind::FalseEdge { .. }
-            | mir::TerminatorKind::FalseUnwind { .. } => bug!(),
+            mir::TerminatorKind::CoroutineDrop | mir::TerminatorKind::Yield { .. } => {
+                if !self.tcx.sess.opts.unstable_opts.backend_coroutines {
+                    bug!()
+                }
+            }
+            mir::TerminatorKind::FalseEdge { .. } | mir::TerminatorKind::FalseUnwind { .. } => {
+                bug!()
+            }
         }
 
         if let Some(mir::UnwindAction::Terminate(reason)) = terminator.unwind() {
@@ -1042,15 +1059,27 @@ fn visit_instance_use<'tcx>(
         | ty::InstanceKind::Shim(ty::ShimKind::DropGlue(_, Some(_)))
         | ty::InstanceKind::Shim(ty::ShimKind::FutureDropPoll(..))
         | ty::InstanceKind::Shim(ty::ShimKind::AsyncDropGlue(_, _))
+        | ty::InstanceKind::Shim(ty::ShimKind::AsyncDropGlueResume(_, _))
         | ty::InstanceKind::Shim(ty::ShimKind::AsyncDropGlueCtor(_, _))
         | ty::InstanceKind::Shim(ty::ShimKind::VTable(..))
         | ty::InstanceKind::Shim(ty::ShimKind::Reify(..))
         | ty::InstanceKind::Shim(ty::ShimKind::ClosureOnce { .. })
         | ty::InstanceKind::Shim(ty::ShimKind::ConstructCoroutineInClosure { .. })
+        | ty::InstanceKind::Shim(ty::ShimKind::CoroutineRamp { .. })
         | ty::InstanceKind::Shim(ty::ShimKind::FnPtr(..))
         | ty::InstanceKind::Shim(ty::ShimKind::Clone(..))
         | ty::InstanceKind::Shim(ty::ShimKind::FnPtrAddr(..)) => {
             output.push(create_fn_mono_item(tcx, instance, source));
+            if let ty::InstanceKind::Item(def_id) = instance.def {
+                if mir::CoroutineInfo::is_retcon(tcx, def_id) {
+                    let ramp_instance = mir::CoroutineInfo::backend_coroutine_ramp_instance(
+                        tcx,
+                        def_id,
+                        instance.args,
+                    );
+                    output.push(create_fn_mono_item(tcx, ramp_instance, source));
+                }
+            }
         }
     }
 }

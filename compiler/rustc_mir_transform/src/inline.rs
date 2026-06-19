@@ -749,6 +749,7 @@ fn check_mir_is_available<'tcx, I: Inliner<'tcx>>(
             return Err("implementation limitation -- HACK for dropping polymorphic type");
         }
         InstanceKind::Shim(ShimKind::AsyncDropGlue(_, ty))
+        | InstanceKind::Shim(ShimKind::AsyncDropGlueResume(_, ty))
         | InstanceKind::Shim(ShimKind::AsyncDropGlueCtor(_, ty)) => {
             return if ty.still_further_specializable() {
                 Err("still needs substitution")
@@ -776,6 +777,7 @@ fn check_mir_is_available<'tcx, I: Inliner<'tcx>>(
         | InstanceKind::Shim(ShimKind::DropGlue(..))
         | InstanceKind::Shim(ShimKind::Clone(..))
         | InstanceKind::Shim(ShimKind::ThreadLocal(..))
+        | InstanceKind::Shim(ShimKind::CoroutineRamp { .. })
         | InstanceKind::Shim(ShimKind::FnPtrAddr(..)) => return Ok(()),
     }
 
@@ -1308,7 +1310,10 @@ impl<'tcx> MutVisitor<'tcx> for Integrator<'_, 'tcx> {
         }
 
         match terminator.kind {
-            TerminatorKind::CoroutineDrop | TerminatorKind::Yield { .. } => bug!(),
+            TerminatorKind::CoroutineDrop | TerminatorKind::Yield { .. } => {
+                // If it's a coroutine with Yield/CoroutineDrop, it shouldn't be inlined.
+                // But it shouldn't ICE if we encounter it.
+            }
             TerminatorKind::Goto { ref mut target } => {
                 *target = self.map_block(*target);
             }

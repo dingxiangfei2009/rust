@@ -448,7 +448,9 @@ impl<'a, 'tcx> Visitor<'tcx> for CfgChecker<'a, 'tcx> {
                 if self.body.coroutine.is_none() {
                     self.fail(location, "`Yield` cannot appear outside coroutine bodies");
                 }
-                if self.body.phase >= MirPhase::Runtime(RuntimePhase::Initial) {
+                if self.body.phase >= MirPhase::Runtime(RuntimePhase::Initial)
+                    && !self.tcx.sess.opts.unstable_opts.backend_coroutines
+                {
                     self.fail(location, "`Yield` should have been replaced by coroutine lowering");
                 }
                 self.check_edge(location, *resume, EdgeKind::Normal);
@@ -486,7 +488,9 @@ impl<'a, 'tcx> Visitor<'tcx> for CfgChecker<'a, 'tcx> {
                 if self.body.coroutine.is_none() {
                     self.fail(location, "`CoroutineDrop` cannot appear outside coroutine bodies");
                 }
-                if self.body.phase >= MirPhase::Runtime(RuntimePhase::Initial) {
+                if self.body.phase >= MirPhase::Runtime(RuntimePhase::Initial)
+                    && !self.tcx.sess.opts.unstable_opts.backend_coroutines
+                {
                     self.fail(
                         location,
                         "`CoroutineDrop` should have been replaced by coroutine lowering",
@@ -785,6 +789,13 @@ impl<'a, 'tcx> Visitor<'tcx> for TypeChecker<'a, 'tcx> {
                             ty::EarlyBinder::bind(self.tcx, f_ty.ty)
                                 .instantiate(self.tcx, args)
                                 .skip_norm_wip()
+                        // Under `-Z backend-coroutines`, the continuation function pointer (`*mut u8`)
+                        // is placed right after all user upvars (`upvar_tys().len()`) in the outer struct layout.
+                        } else if self.tcx.sess.opts.unstable_opts.backend_coroutines
+                            && f.index() == args.as_coroutine().upvar_tys().len()
+                            && ty.is_raw_ptr()
+                        {
+                            ty
                         } else if let Some(&f_ty) = args.as_coroutine().upvar_tys().get(f.index()) {
                             f_ty
                         } else {

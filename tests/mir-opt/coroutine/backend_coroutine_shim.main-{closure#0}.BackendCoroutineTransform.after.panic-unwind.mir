@@ -1,0 +1,92 @@
+// MIR for `main::{closure#0}` after BackendCoroutineTransform
+
+fn main::{closure#0}(_1: Pin<&mut {coroutine@$DIR/backend_coroutine_shim.rs:10:5: 10:15}>, _2: i32) -> CoroutineState<i32, i32>
+yields i32
+ {
+    coroutine layout {
+        variant_fields = {
+            Unresumed(0): [],
+            Returned (1): [],
+            Panicked (2): [],
+            Suspend0 (3): [],
+            Suspend1 (4): [],
+        }
+        storage_conflicts = BitMatrix(0x0) {}
+    }
+    let mut _0: std::ops::CoroutineState<i32, i32>;
+    let mut _3: &mut {coroutine@$DIR/backend_coroutine_shim.rs:10:5: 10:15};
+    let mut _4: *mut u8;
+    let mut _5: std::mem::MaybeUninit<i32>;
+    let mut _6: std::mem::MaybeUninit<i32>;
+    let mut _7: *mut i32;
+    let mut _8: *mut i32;
+    let mut _9: unsafe fn(*mut u8, bool, *mut i32, *mut i32, *mut i32) -> *mut u8;
+    let mut _10: *mut u8;
+    let mut _11: i32;
+    let mut _12: i32;
+    let mut _13: *mut std::mem::MaybeUninit<i32>;
+    let mut _14: *mut std::mem::MaybeUninit<i32>;
+    let mut _15: *mut u8;
+    let mut _16: *mut {coroutine@$DIR/backend_coroutine_shim.rs:10:5: 10:15};
+    let mut _17: bool;
+    let mut _18: *mut i32;
+    let mut _19: *mut i32;
+    let mut _20: *mut u8;
+
+    bb0: {
+        _3 = no_retag copy (_1.0: &mut {coroutine@$DIR/backend_coroutine_shim.rs:10:5: 10:15});
+        _16 = &raw mut (*_3);
+        _20 = copy _16 as *mut u8 (PtrToPtr);
+        _4 = no_retag copy ((*_3).0: *mut u8);
+        _15 = const 0_usize as *mut u8 (PointerWithExposedProvenance);
+        _17 = Eq(copy _4, copy _15);
+        switchInt(move _17) -> [1: bb5, otherwise: bb1];
+    }
+
+    bb1: {
+        StorageLive(_5);
+        StorageLive(_6);
+        _13 = &raw mut _5;
+        _7 = copy _13 as *mut i32 (PtrToPtr);
+        _14 = &raw mut _6;
+        _8 = copy _14 as *mut i32 (PtrToPtr);
+        _18 = &raw mut _2;
+        _19 = copy _18 as *mut i32 (PtrToPtr);
+        _9 = copy _4 as unsafe fn(*mut u8, bool, *mut i32, *mut i32, *mut i32) -> *mut u8 (Transmute);
+        _10 = copy _9(copy _20, const false, copy _19, copy _7, copy _8) -> [return: bb2, unwind continue];
+    }
+
+    bb2: {
+        _3 = no_retag copy (_1.0: &mut {coroutine@$DIR/backend_coroutine_shim.rs:10:5: 10:15});
+        ((*_3).0: *mut u8) = no_retag copy _10;
+        _17 = Eq(copy _10, copy _15);
+        switchInt(copy _17) -> [1: bb4, otherwise: bb3];
+    }
+
+    bb3: {
+        _11 = no_retag copy (*_7);
+        _0 = CoroutineState::<i32, i32>::Yielded(move _11);
+        StorageDead(_5);
+        StorageDead(_6);
+        goto -> bb6;
+    }
+
+    bb4: {
+        _3 = no_retag copy (_1.0: &mut {coroutine@$DIR/backend_coroutine_shim.rs:10:5: 10:15});
+        ((*_3).0: *mut u8) = no_retag copy _15;
+        discriminant((*_3)) = 1;
+        _12 = no_retag copy (*_8);
+        _0 = CoroutineState::<i32, i32>::Complete(move _12);
+        StorageDead(_5);
+        StorageDead(_6);
+        goto -> bb6;
+    }
+
+    bb5: {
+        assert(const false, "coroutine resumed after completion") -> [success: bb5, unwind continue];
+    }
+
+    bb6: {
+        return;
+    }
+}

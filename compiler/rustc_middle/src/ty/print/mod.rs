@@ -401,8 +401,11 @@ impl<'tcx, P: Printer<'tcx> + std::fmt::Write> Print<P> for ty::ShimKind<'tcx> {
             ty::ShimKind::FutureDropPoll(_, proxy_ty, impl_ty) => {
                 cx.write_str(&format!("dropshim({proxy_ty}-{impl_ty})"))
             }
-            ty::ShimKind::AsyncDropGlue(_, ty) => cx.write_str(&format!("shim({ty})")),
+            ty::ShimKind::AsyncDropGlue(_, ty) | ty::ShimKind::AsyncDropGlueResume(_, ty) => {
+                cx.write_str(&format!("shim({ty})"))
+            }
             ty::ShimKind::AsyncDropGlueCtor(_, ty) => cx.write_str(&format!("shim(Some({ty}))")),
+            ty::ShimKind::CoroutineRamp { .. } => cx.write_str("shim(coroutine_constructor)"),
         }
     }
 }

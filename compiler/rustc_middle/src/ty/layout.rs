@@ -827,6 +827,7 @@ where
     }
 
     fn ty_and_layout_field(this: TyAndLayout<'tcx>, cx: &C, i: usize) -> TyAndLayout<'tcx> {
+        #[derive(Debug)]
         enum TyMaybeWithLayout<'tcx> {
             Ty(Ty<'tcx>),
             TyAndLayout(TyAndLayout<'tcx>),
@@ -979,6 +980,16 @@ where
                     Variants::Multiple { tag, tag_field, .. } => {
                         if FieldIdx::from_usize(i) == tag_field {
                             TyMaybeWithLayout::TyAndLayout(tag_layout(tag))
+                        } else if tcx.sess.opts.unstable_opts.backend_coroutines {
+                            let upvar_tys = args.as_coroutine().upvar_tys();
+                            let upvar_count = upvar_tys.len();
+                            if i == upvar_count {
+                                TyMaybeWithLayout::Ty(Ty::new_mut_ptr(tcx, tcx.types.u8))
+                            } else if i < upvar_count {
+                                TyMaybeWithLayout::Ty(upvar_tys[i])
+                            } else {
+                                bug!("invalid field index {} for coroutine Multiple layout", i)
+                            }
                         } else {
                             TyMaybeWithLayout::Ty(args.as_coroutine().upvar_tys()[i])
                         }

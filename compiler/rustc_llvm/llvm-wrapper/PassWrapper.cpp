@@ -55,6 +55,7 @@
 #include "llvm/Transforms/Utils/CanonicalizeAliases.h"
 #include "llvm/Transforms/Utils/FunctionImportUtils.h"
 #include "llvm/Transforms/Utils/NameAnonGlobals.h"
+
 #include <set>
 #include <string>
 #include <vector>
@@ -65,6 +66,12 @@
 using namespace llvm;
 
 static codegen::RegisterCodeGenFlags CGF;
+
+namespace {
+
+
+
+} // anonymous namespace
 
 typedef struct LLVMOpaquePass *LLVMPassRef;
 typedef struct LLVMOpaqueTargetMachine *LLVMTargetMachineRef;
@@ -687,9 +694,9 @@ extern "C" LLVMRustResult LLVMRustOptimize(
   CGSCCAnalysisManager CGAM;
   ModuleAnalysisManager MAM;
 
-  StandardInstrumentations SI(TheModule->getContext(),
-                              /*DebugLogging=*/false);
+  StandardInstrumentations SI(TheModule->getContext(), /*DebugLogging=*/false);
   SI.registerCallbacks(PIC, &MAM);
+
 
   if (LLVMPluginsLen) {
     auto PluginsStr = StringRef(LLVMPlugins, LLVMPluginsLen);

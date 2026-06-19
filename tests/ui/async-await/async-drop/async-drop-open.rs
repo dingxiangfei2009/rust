@@ -1,5 +1,7 @@
 //@ run-pass
 //@ check-run-results
+//@ revisions: default retcon
+//@[retcon]compile-flags: -Z backend-coroutines
 // struct `Foo` has both sync and async drop.
 // Struct `Complex` contains three `Foo` fields and one of them is moved out.
 

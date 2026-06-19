@@ -70,6 +70,11 @@ pub(super) fn mangle<'tcx>(
             ..
         }) => Some("by_ref"),
         ty::InstanceKind::Shim(ty::ShimKind::FutureDropPoll(_, _, _)) => Some("drop"),
+        ty::InstanceKind::Shim(ty::ShimKind::CoroutineRamp { .. }) => Some("ramp"),
+        ty::InstanceKind::Shim(ty::ShimKind::AsyncDropGlueResume { .. }) => {
+            Some("async_drop_resume")
+        }
+
         _ => None,
     };
 
@@ -79,6 +84,13 @@ pub(super) fn mangle<'tcx>(
         };
         let drop_ty = cor_args.first().unwrap().expect_ty();
         p.print_def_path(def_id, tcx.mk_args(&[GenericArg::from(drop_ty)])).unwrap()
+    } else if let ty::InstanceKind::Shim(ty::ShimKind::AsyncDropGlueResume(_, ty)) = instance.def {
+        let ty::Coroutine(_, cor_args) = ty.kind() else {
+            bug!();
+        };
+        let drop_ty = cor_args.first().unwrap().expect_ty();
+        let args = tcx.mk_args(&[GenericArg::from(drop_ty)]);
+        p.path_append_ns(|p| p.print_def_path(def_id, args), 'S', 0, "async_drop_resume").unwrap()
     } else if let Some(shim_kind) = shim_kind {
         p.path_append_ns(|p| p.print_def_path(def_id, args), 'S', 0, shim_kind).unwrap()
     } else {

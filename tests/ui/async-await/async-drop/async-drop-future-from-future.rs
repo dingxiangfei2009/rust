@@ -1,5 +1,7 @@
 //@ run-pass
 //@ check-run-results
+//@ revisions: default retcon
+//@[retcon]compile-flags: -Z backend-coroutines
 // Future `bar` with internal async drop `Foo` will have async drop itself.
 // And we trying to drop this future in sync context (`block_on` func)
 

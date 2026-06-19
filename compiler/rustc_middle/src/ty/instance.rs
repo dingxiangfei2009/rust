@@ -135,7 +135,11 @@ pub enum ShimKind<'tcx> {
     ///
     /// This generates a body that will just borrow the (owned) self type,
     /// and dispatch to the `FnMut::call_mut` instance for the closure.
-    ClosureOnce { call_once: DefId, closure: DefId, track_caller: bool },
+    ClosureOnce {
+        call_once: DefId,
+        closure: DefId,
+        track_caller: bool,
+    },
 
     /// `<[FnMut/Fn coroutine-closure] as FnOnce>::call_once`
     ///
@@ -150,6 +154,14 @@ pub enum ShimKind<'tcx> {
         // that it returns the `FnOnce`-flavored coroutine but takes the closure
         // by mut ref (and similarly for `Fn::call`).
         receiver_by_ref: bool,
+    },
+
+    /// Ramp function for retcon coroutines.
+    ///
+    /// This is generated when `-Zbackend-coroutines` is active.
+    /// It acts as the "constructor" of the coroutine state.
+    CoroutineRamp {
+        coroutine_def_id: DefId,
     },
 
     /// Compiler-generated accessor for thread locals which returns a reference to the thread local
@@ -195,6 +207,7 @@ pub enum ShimKind<'tcx> {
     /// async_drop_in_place poll function implementation (for generated coroutine).
     /// `Ty` here is `async_drop_in_place<T>::{closure}` coroutine type, not just `T`
     AsyncDropGlue(DefId, Ty<'tcx>),
+    AsyncDropGlueResume(DefId, Ty<'tcx>),
 }
 
 impl<'tcx> Instance<'tcx> {
@@ -244,7 +257,9 @@ impl<'tcx> Instance<'tcx> {
             InstanceKind::Shim(ShimKind::DropGlue(_, Some(_))) => {
                 tcx.upstream_drop_glue_for(self.args)
             }
-            InstanceKind::Shim(ShimKind::AsyncDropGlue(_, _)) => None,
+            InstanceKind::Shim(
+                ShimKind::AsyncDropGlue(_, _) | ShimKind::AsyncDropGlueResume(_, _),
+            ) => None,
             InstanceKind::Shim(ShimKind::FutureDropPoll(_, _, _)) => None,
             InstanceKind::Shim(ShimKind::AsyncDropGlueCtor(_, _)) => {
                 tcx.upstream_async_drop_glue_for(self.args)
@@ -347,7 +362,9 @@ impl<'tcx> ShimKind<'tcx> {
             | ShimKind::FnPtrAddr(def_id, _)
             | ShimKind::FutureDropPoll(def_id, _, _)
             | ShimKind::AsyncDropGlue(def_id, _)
-            | ShimKind::AsyncDropGlueCtor(def_id, _) => def_id,
+            | ShimKind::AsyncDropGlueResume(def_id, _)
+            | ShimKind::AsyncDropGlueCtor(def_id, _)
+            | ShimKind::CoroutineRamp { coroutine_def_id: def_id } => def_id,
         }
     }
 
@@ -357,6 +374,7 @@ impl<'tcx> ShimKind<'tcx> {
             ShimKind::DropGlue(def_id, Some(_))
             | ShimKind::AsyncDropGlueCtor(def_id, _)
             | ShimKind::AsyncDropGlue(def_id, _)
+            | ShimKind::AsyncDropGlueResume(def_id, _)
             | ShimKind::FutureDropPoll(def_id, ..)
             | ShimKind::ThreadLocal(def_id) => Some(def_id),
             ShimKind::VTable(..)
@@ -366,7 +384,8 @@ impl<'tcx> ShimKind<'tcx> {
             | ShimKind::ConstructCoroutineInClosure { .. }
             | ShimKind::DropGlue(..)
             | ShimKind::Clone(..)
-            | ShimKind::FnPtrAddr(..) => None,
+            | ShimKind::FnPtrAddr(..)
+            | ShimKind::CoroutineRamp { .. } => None,
         }
     }
 
@@ -375,8 +394,9 @@ impl<'tcx> ShimKind<'tcx> {
             ShimKind::DropGlue(_, Some(ty)) => ty.is_array(),
             ShimKind::AsyncDropGlueCtor(_, ty) => ty.is_coroutine(),
             ShimKind::FutureDropPoll(_, _, _) => false,
-            ShimKind::AsyncDropGlue(_, _) => false,
+            ShimKind::AsyncDropGlue(_, _) | ShimKind::AsyncDropGlueResume(_, _) => false,
             ShimKind::ThreadLocal(_) => false,
+            ShimKind::CoroutineRamp { .. } => false,
             _ => true,
         }
     }
@@ -389,13 +409,15 @@ impl<'tcx> ShimKind<'tcx> {
             | ShimKind::FnPtr(..)
             | ShimKind::DropGlue(_, Some(_))
             | ShimKind::FutureDropPoll(..)
-            | ShimKind::AsyncDropGlue(_, _) => false,
+            | ShimKind::AsyncDropGlue(_, _)
+            | ShimKind::AsyncDropGlueResume(_, _) => false,
             ShimKind::AsyncDropGlueCtor(_, _) => false,
             ShimKind::ClosureOnce { .. }
             | ShimKind::ConstructCoroutineInClosure { .. }
             | ShimKind::DropGlue(..)
             | ShimKind::Reify(..)
-            | ShimKind::VTable(..) => true,
+            | ShimKind::VTable(..)
+            | ShimKind::CoroutineRamp { .. } => true,
         }
     }
 }
@@ -451,51 +473,6 @@ impl<'tcx> fmt::Display for Instance<'tcx> {
 // async_drop_in_place<async_drop_in_place<T>::coroutine>::coroutine.poll,
 // when T is not a coroutine, should be resolved to the innermost
 // async_drop_in_place<T>::coroutine's poll function (through FutureDropPollShim proxy)
-fn resolve_async_drop_poll<'tcx>(mut cor_ty: Ty<'tcx>) -> Instance<'tcx> {
-    let first_cor = cor_ty;
-    let ty::Coroutine(poll_def_id, proxy_args) = first_cor.kind() else {
-        bug!();
-    };
-    let poll_def_id = *poll_def_id;
-    let mut child_ty = cor_ty;
-    loop {
-        if let ty::Coroutine(child_def, child_args) = child_ty.kind() {
-            cor_ty = child_ty;
-            if *child_def == poll_def_id {
-                child_ty = child_args.first().unwrap().expect_ty();
-                continue;
-            } else {
-                return Instance {
-                    def: ty::InstanceKind::Shim(ShimKind::FutureDropPoll(
-                        poll_def_id,
-                        first_cor,
-                        cor_ty,
-                    )),
-                    args: proxy_args,
-                };
-            }
-        } else {
-            let ty::Coroutine(_, child_args) = cor_ty.kind() else {
-                bug!();
-            };
-            if first_cor != cor_ty {
-                return Instance {
-                    def: ty::InstanceKind::Shim(ShimKind::FutureDropPoll(
-                        poll_def_id,
-                        first_cor,
-                        cor_ty,
-                    )),
-                    args: proxy_args,
-                };
-            } else {
-                return Instance {
-                    def: ty::InstanceKind::Shim(ShimKind::AsyncDropGlue(poll_def_id, cor_ty)),
-                    args: child_args,
-                };
-            }
-        }
-    }
-}
 
 impl<'tcx> Instance<'tcx> {
     /// Creates a new [`InstanceKind::Item`] from the `def_id` and `args`.
@@ -819,6 +796,59 @@ impl<'tcx> Instance<'tcx> {
         Instance::expect_resolve(tcx, ty::TypingEnv::fully_monomorphized(), def_id, args, DUMMY_SP)
     }
 
+    // async_drop_in_place<T>::coroutine.poll, when T is a standard coroutine,
+    // should be resolved to this coroutine's future_drop_poll (through FutureDropPollShim proxy).
+    // async_drop_in_place<async_drop_in_place<T>::coroutine>::coroutine.poll,
+    // when T is a standard coroutine, should be resolved to this coroutine's future_drop_poll.
+    // async_drop_in_place<async_drop_in_place<T>::coroutine>::coroutine.poll,
+    // when T is not a coroutine, should be resolved to the innermost
+    // async_drop_in_place<T>::coroutine's poll function (through FutureDropPollShim proxy)
+    pub fn resolve_async_drop_poll(mut cor_ty: Ty<'tcx>) -> Instance<'tcx> {
+        let first_cor = cor_ty;
+        let ty::Coroutine(poll_def_id, proxy_args) = first_cor.kind() else {
+            bug!();
+        };
+        let poll_def_id = *poll_def_id;
+        let mut child_ty = cor_ty;
+        loop {
+            if let ty::Coroutine(child_def, child_args) = child_ty.kind() {
+                cor_ty = child_ty;
+                if *child_def == poll_def_id {
+                    child_ty = child_args.first().unwrap().expect_ty();
+                    continue;
+                } else {
+                    return Instance {
+                        def: ty::InstanceKind::Shim(ShimKind::FutureDropPoll(
+                            poll_def_id,
+                            first_cor,
+                            cor_ty,
+                        )),
+                        args: proxy_args,
+                    };
+                }
+            } else {
+                let ty::Coroutine(_, child_args) = cor_ty.kind() else {
+                    bug!();
+                };
+                if first_cor != cor_ty {
+                    return Instance {
+                        def: ty::InstanceKind::Shim(ShimKind::FutureDropPoll(
+                            poll_def_id,
+                            first_cor,
+                            cor_ty,
+                        )),
+                        args: proxy_args,
+                    };
+                } else {
+                    return Instance {
+                        def: ty::InstanceKind::Shim(ShimKind::AsyncDropGlue(poll_def_id, cor_ty)),
+                        args: child_args,
+                    };
+                }
+            }
+        }
+    }
+
     #[instrument(level = "debug", skip(tcx), ret)]
     pub fn fn_once_adapter_instance(
         tcx: TyCtxt<'tcx>,
@@ -888,7 +918,7 @@ impl<'tcx> Instance<'tcx> {
 
         if tcx.is_lang_item(trait_item_id, coroutine_callable_item) {
             if tcx.is_async_drop_in_place_coroutine(coroutine_def_id) {
-                return Some(resolve_async_drop_poll(rcvr_args.type_at(0)));
+                return Some(Self::resolve_async_drop_poll(rcvr_args.type_at(0)));
             }
             let ty::Coroutine(_, id_args) = *tcx.type_of(coroutine_def_id).skip_binder().kind()
             else {

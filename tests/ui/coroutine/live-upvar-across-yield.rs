@@ -1,4 +1,6 @@
 //@ run-pass
+//@ revisions: default retcon
+//@[retcon]compile-flags: -Z backend-coroutines
 
 #![feature(coroutines, coroutine_trait, stmt_expr_attributes)]
 

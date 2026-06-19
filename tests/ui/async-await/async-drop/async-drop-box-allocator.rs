@@ -1,5 +1,7 @@
 //@ run-pass
 //@ check-run-results
+//@ revisions: default retcon
+//@[retcon]compile-flags: -Z backend-coroutines
 // struct `Foo` has both sync and async drop.
 // It's used as the allocator of a `Box` which is conditionally moved out of.
 // Sync version is called in sync context, async version is called in async function.

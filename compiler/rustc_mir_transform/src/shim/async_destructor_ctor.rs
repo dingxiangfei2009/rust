@@ -65,7 +65,7 @@ pub(super) fn build_async_drop_shim<'tcx>(
         CoroutineKind::Desugared(CoroutineDesugaring::Async, CoroutineSource::Fn)
     ));
 
-    let needs_async_drop = drop_ty.needs_async_drop(tcx, typing_env);
+    let needs_async_drop = drop_ty.has_param() || drop_ty.needs_async_drop(tcx, typing_env);
     let needs_sync_drop = !needs_async_drop && drop_ty.needs_drop(tcx, typing_env);
 
     let resume_adt = tcx.adt_def(tcx.require_lang_item(LangItem::ResumeTy, DUMMY_SP));
@@ -74,7 +74,6 @@ pub(super) fn build_async_drop_shim<'tcx>(
     let fn_sig = ty::Binder::dummy(tcx.mk_fn_sig_safe_rust_abi([ty, resume_ty], tcx.types.unit));
     let sig = tcx.instantiate_bound_regions_with_erased(fn_sig);
 
-    assert!(!drop_ty.is_coroutine());
     let span = tcx.def_span(def_id);
     let source_info = SourceInfo::outermost(span);
 
@@ -205,10 +204,23 @@ fn build_adrop_for_coroutine_shim<'tcx>(
         bug!("build_adrop_for_coroutine_shim not for coroutine impl type: ({:?})", shim);
     };
     let source_info = SourceInfo::outermost(span);
-    let body = tcx.optimized_mir(*coroutine_def_id).future_drop_poll().unwrap();
+    let coroutine_body = super::get_coroutine_body(tcx, *coroutine_def_id);
+    let body = match coroutine_body.future_drop_poll() {
+        Some(b) => b.clone(),
+        None if tcx.sess.opts.unstable_opts.backend_coroutines => {
+            let coroutine_kind = coroutine_body.coroutine_kind().unwrap();
+            crate::coroutine::drop::create_coroutine_drop_shim_proxy_async(
+                tcx,
+                &coroutine_body,
+                coroutine_kind,
+            )
+        }
+        None => bug!("future_drop_poll missing on {:?}", coroutine_def_id),
+    };
     let mut body: Body<'tcx> =
-        EarlyBinder::bind(tcx, body.clone()).instantiate(tcx, impl_args).skip_norm_wip();
+        EarlyBinder::bind(tcx, body).instantiate(tcx, impl_args).skip_norm_wip();
     body.source.instance = ty::InstanceKind::Shim(shim);
+
     body.phase = MirPhase::Runtime(RuntimePhase::Initial);
     body.var_debug_info.clear();
 
@@ -236,7 +248,6 @@ fn build_adrop_for_coroutine_shim<'tcx>(
         PlaceElem::Field(FieldIdx::ZERO, proxy_ref),
     ];
 
-    // _cor_ref_tmp = (*(*_proxy).0).0...
     proxy_ty.find_async_drop_impl_coroutine(tcx, |ty| {
         if ty != proxy_ty {
             let ty_ref = Ty::new_mut_ref(tcx, tcx.lifetimes.re_erased, ty);

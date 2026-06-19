@@ -1,5 +1,7 @@
 //@ edition: 2024
 //@ build-pass
+//@ revisions: default retcon
+//@[retcon]compile-flags: -Z backend-coroutines
 #![crate_type = "lib"]
 #![allow(incomplete_features)]
 #![feature(async_drop)]

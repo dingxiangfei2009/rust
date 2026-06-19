@@ -673,6 +673,7 @@ impl<'tcx, M: Machine<'tcx>> InterpCx<'tcx, M> {
             | ty::InstanceKind::Shim(ty::ShimKind::ThreadLocal(..))
             | ty::InstanceKind::Shim(ty::ShimKind::AsyncDropGlueCtor(..))
             | ty::InstanceKind::Shim(ty::ShimKind::AsyncDropGlue(..))
+            | ty::InstanceKind::Shim(ty::ShimKind::AsyncDropGlueResume(..))
             | ty::InstanceKind::Shim(ty::ShimKind::FutureDropPoll(..))
             | ty::InstanceKind::Item(_) => {
                 // We need MIR for this fn.
@@ -813,6 +814,9 @@ impl<'tcx, M: Machine<'tcx>> InterpCx<'tcx, M> {
                     target,
                     unwind,
                 )
+            }
+            ty::InstanceKind::Shim(ty::ShimKind::CoroutineRamp { .. }) => {
+                throw_ub_format!("cannot call coroutine constructor shim in const eval")
             }
         }
     }

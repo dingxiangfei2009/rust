@@ -2485,7 +2485,7 @@ pub struct VariantLayout<FieldIdx: Idx> {
     pub backend_repr: BackendRepr,
     pub field_offsets: IndexVec<FieldIdx, Size>,
     fields_in_memory_order: IndexVec<u32, FieldIdx>,
-    largest_niche: Option<Niche>,
+    pub largest_niche: Option<Niche>,
     uninhabited: bool,
 }
 

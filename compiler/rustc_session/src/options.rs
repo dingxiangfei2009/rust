@@ -2379,6 +2379,8 @@ options! {
         Multiple options can be combined with commas."),
     autodiff_post_passes: Option<String> = (None, parse_opt_string, [TRACKED],
         "set llvm passes to run after enzyme (no passes run when it is empty)"),
+    backend_coroutines: bool = (false, parse_bool, [TRACKED],
+        "experimental backend coroutines (default: false)"),
     #[rustc_lint_opt_deny_field_access("use `Session::binary_dep_depinfo` instead of this field")]
     binary_dep_depinfo: bool = (false, parse_bool, [TRACKED],
         "include artifacts (sysroot, crate dependencies) used during compilation in dep-info \

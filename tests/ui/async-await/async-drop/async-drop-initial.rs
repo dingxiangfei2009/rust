@@ -1,5 +1,7 @@
 //@ run-pass
 //@ check-run-results
+//@ revisions: default retcon
+//@[retcon]compile-flags: -Z backend-coroutines
 
 // WARNING: If you would ever want to modify this test,
 // please consider modifying miri's async drop test at
@@ -24,7 +26,7 @@ async fn test_async_drop<T>(x: T, _size: usize) {
     // FIXME(zetanumbers): This check fully depends on the layout of
     // the coroutine state, since async destructor combinators are just
     // async functions.
-    #[cfg(target_pointer_width = "64")]
+    #[cfg(all(target_pointer_width = "64", not(retcon)))]
     assert_eq!(
         mem::size_of_val(&*dtor),
         _size,

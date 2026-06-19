@@ -651,8 +651,14 @@ impl<'a, 'tcx> TOFinder<'a, 'tcx> {
         let place_to_flood = match term.kind {
             // Disallowed during optimizations.
             TerminatorKind::FalseEdge { .. }
-            | TerminatorKind::FalseUnwind { .. }
-            | TerminatorKind::Yield { .. } => bug!("{term:?} invalid"),
+            | TerminatorKind::FalseUnwind { .. } => bug!("{term:?} invalid"),
+            TerminatorKind::Yield { resume_arg, .. } => {
+                if !self.tcx.sess.opts.unstable_opts.backend_coroutines {
+                    bug!("{term:?} invalid")
+                } else {
+                    Some(resume_arg.clone())
+                }
+            }
             // Cannot reason about inline asm.
             TerminatorKind::InlineAsm { .. } => {
                 state.active.clear();

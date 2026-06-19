@@ -149,6 +149,7 @@ pub(super) fn layout<
     variant_fields: &IndexSlice<VariantIdx, IndexVec<FieldIdx, LocalIdx>>,
     storage_conflicts: &BitMatrix<LocalIdx, LocalIdx>,
     tag_to_layout: impl Fn(Scalar) -> F,
+    repr: &ReprOptions,
 ) -> super::LayoutCalculatorResult<FieldIdx, VariantIdx, F> {
     use SavedLocalEligibility::*;
 
@@ -171,8 +172,7 @@ pub(super) fn layout<
     let promoted_layouts = ineligible_locals.iter().map(|local| local_layouts[local]);
     prefix_layouts.push(tag_to_layout(tag));
     prefix_layouts.extend(promoted_layouts);
-    let prefix =
-        calc.univariant(&prefix_layouts, &ReprOptions::default(), StructKind::AlwaysSized)?;
+    let prefix = calc.univariant(&prefix_layouts, repr, StructKind::AlwaysSized)?;
 
     let (prefix_size, prefix_align) = (prefix.size, prefix.align);
 

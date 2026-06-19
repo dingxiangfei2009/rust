@@ -536,7 +536,9 @@ impl<'tcx> CodegenUnit<'tcx> {
                     | InstanceKind::Shim(ShimKind::ThreadLocal(..))
                     | InstanceKind::Shim(ShimKind::FnPtrAddr(..))
                     | InstanceKind::Shim(ShimKind::AsyncDropGlue(..))
+                    | InstanceKind::Shim(ShimKind::AsyncDropGlueResume(..))
                     | InstanceKind::Shim(ShimKind::FutureDropPoll(..))
+                    | InstanceKind::Shim(ShimKind::CoroutineRamp { .. })
                     | InstanceKind::Shim(ShimKind::AsyncDropGlueCtor(..)) => None,
                 },
                 MonoItem::Static(def_id) => def_id.as_local().map(|_| def_id),

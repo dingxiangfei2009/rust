@@ -661,6 +661,9 @@ impl<'a, 'll, 'tcx> BuilderMethods<'a, 'tcx> for Builder<'a, 'll, 'tcx> {
         unsafe {
             let alloca = llvm::LLVMBuildAlloca(bx.llbuilder, ty, UNNAMED);
             llvm::LLVMSetAlignment(alloca, align.bytes() as c_uint);
+            if crate::attributes::has_string_attr(self.llfn(), "is-coroutine-ramp") {
+                bx.set_metadata_node(alloca, llvm::MD_coro_outside_frame, &[]);
+            }
             // Cast to default addrspace if necessary
             llvm::LLVMBuildPointerCast(bx.llbuilder, alloca, self.cx().type_ptr(), UNNAMED)
         }
@@ -674,6 +677,9 @@ impl<'a, 'll, 'tcx> BuilderMethods<'a, 'tcx> for Builder<'a, 'll, 'tcx> {
         unsafe {
             let alloca = llvm::LLVMBuildAlloca(&bx.llbuilder, scalable_vector_ty, UNNAMED);
             llvm::LLVMSetAlignment(alloca, layout.align.abi.bytes() as c_uint);
+            if crate::attributes::has_string_attr(self.llfn(), "is-coroutine-ramp") {
+                bx.set_metadata_node(alloca, llvm::MD_coro_outside_frame, &[]);
+            }
             alloca
         }
     }

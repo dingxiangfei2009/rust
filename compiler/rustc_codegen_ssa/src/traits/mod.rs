@@ -16,6 +16,7 @@ mod asm;
 mod backend;
 mod builder;
 mod consts;
+mod coroutine;
 mod coverageinfo;
 mod debuginfo;
 mod declare;
@@ -38,6 +39,7 @@ pub use self::asm::{
 pub use self::backend::{BackendTypes, CodegenBackend, ExtraBackendMethods};
 pub use self::builder::{BuilderMethods, OverflowOp};
 pub use self::consts::ConstCodegenMethods;
+pub use self::coroutine::CoroutineBuilderMethods;
 pub use self::coverageinfo::CoverageInfoBuilderMethods;
 pub use self::debuginfo::{DebugInfoBuilderMethods, DebugInfoCodegenMethods};
 pub use self::declare::PreDefineCodegenMethods;

@@ -393,6 +393,7 @@ enum class LLVMRustAttributeKind {
   SanitizeRealtimeBlocking = 48,
   Convergent = 49,
   NoFree = 50,
+  PresplitCoroutine = 51,
 };
 
 static Attribute::AttrKind fromRust(LLVMRustAttributeKind Kind) {
@@ -493,6 +494,8 @@ static Attribute::AttrKind fromRust(LLVMRustAttributeKind Kind) {
     return Attribute::Convergent;
   case LLVMRustAttributeKind::NoFree:
     return Attribute::NoFree;
+  case LLVMRustAttributeKind::PresplitCoroutine:
+    return Attribute::PresplitCoroutine;
   }
   report_fatal_error("bad LLVMRustAttributeKind");
 }

@@ -644,6 +644,8 @@ fn characteristic_def_id_of_mono_item<'tcx>(
                 | ty::InstanceKind::Shim(ty::ShimKind::FnPtrAddr(..))
                 | ty::InstanceKind::Shim(ty::ShimKind::FutureDropPoll(..))
                 | ty::InstanceKind::Shim(ty::ShimKind::AsyncDropGlue(..))
+                | ty::InstanceKind::Shim(ty::ShimKind::AsyncDropGlueResume(..))
+                | ty::InstanceKind::Shim(ty::ShimKind::CoroutineRamp { .. })
                 | ty::InstanceKind::Shim(ty::ShimKind::AsyncDropGlueCtor(..)) => return None,
             };
 
@@ -809,6 +811,7 @@ fn mono_item_visibility<'tcx>(
         | InstanceKind::Shim(ShimKind::DropGlue(def_id, Some(_)))
         | InstanceKind::Shim(ShimKind::FutureDropPoll(def_id, _, _))
         | InstanceKind::Shim(ShimKind::AsyncDropGlue(def_id, _))
+        | InstanceKind::Shim(ShimKind::AsyncDropGlueResume(def_id, _))
         | InstanceKind::Shim(ShimKind::AsyncDropGlueCtor(def_id, _)) => def_id,
 
         // We match the visibility of statics here
@@ -827,6 +830,7 @@ fn mono_item_visibility<'tcx>(
         | InstanceKind::Shim(ShimKind::ConstructCoroutineInClosure { .. })
         | InstanceKind::Shim(ShimKind::DropGlue(..))
         | InstanceKind::Shim(ShimKind::Clone(..))
+        | InstanceKind::Shim(ShimKind::CoroutineRamp { .. })
         | InstanceKind::Shim(ShimKind::FnPtrAddr(..)) => return Visibility::Hidden,
     };
 

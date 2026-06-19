@@ -1,6 +1,8 @@
 // ex-ice: #140530
 //@ edition: 2024
 //@ build-pass
+//@ revisions: default retcon
+//@[retcon]compile-flags: -Z backend-coroutines
 #![feature(async_drop, gen_blocks)]
 #![allow(incomplete_features)]
 async gen fn a() {

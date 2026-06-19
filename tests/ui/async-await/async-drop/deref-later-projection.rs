@@ -2,6 +2,8 @@
 //@ compile-flags: -Zvalidate-mir
 //@ build-pass
 //@ edition:2021
+//@ revisions: default retcon
+//@[retcon]compile-flags: -Z backend-coroutines
 #![crate_type = "lib"]
 #![feature(async_drop)]
 #![allow(incomplete_features)]

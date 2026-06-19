@@ -2000,7 +2000,7 @@ impl<'tcx> TyCtxt<'tcx> {
             // when T is a coroutine, contains this internal coroutine's ptr in upvars
             // and doesn't require any locals. Here is an `empty coroutine's layout`
             let arg_cor_ty = args.first().unwrap().expect_ty();
-            if arg_cor_ty.is_coroutine() {
+            if !self.sess.opts.unstable_opts.backend_coroutines && arg_cor_ty.is_coroutine() {
                 let span = self.def_span(def_id);
                 let source_info = SourceInfo::outermost(span);
                 // Even minimal, empty coroutine has 3 states (RESERVED_VARIANTS),

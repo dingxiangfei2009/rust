@@ -214,6 +214,24 @@ pub mod panic_const {
     }
 }
 
+#[cfg_attr(not(panic = "immediate-abort"), inline(never), cold)]
+#[cfg_attr(panic = "immediate-abort", inline)]
+#[lang = "coroutine_alloc_panic"]
+#[doc(hidden)]
+#[unstable(feature = "coroutine", issue = "none")]
+pub extern "C" fn coroutine_alloc_panic(_size: usize) -> *mut u8 {
+    panic("coroutine frame exceeded LLVM buffer size");
+}
+
+#[cfg_attr(not(panic = "immediate-abort"), inline(never), cold)]
+#[cfg_attr(panic = "immediate-abort", inline)]
+#[lang = "coroutine_dealloc_panic"]
+#[doc(hidden)]
+#[unstable(feature = "coroutine", issue = "none")]
+pub extern "C" fn coroutine_dealloc_panic(_ptr: *mut u8) {
+    panic("coroutine deallocation triggered");
+}
+
 /// Like `panic`, but without unwinding and track_caller to reduce the impact on codesize on the caller.
 /// If you want `#[track_caller]` for nicer errors, call `panic_nounwind_fmt` directly.
 #[cfg_attr(not(panic = "immediate-abort"), inline(never), cold)]

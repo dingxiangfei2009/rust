@@ -165,10 +165,10 @@ impl<'tcx> Visitor<'tcx> for CostChecker<'_, 'tcx> {
             }
             TerminatorKind::Goto { .. } | TerminatorKind::Return => {}
             TerminatorKind::UnwindTerminate(..) => {}
-            kind @ (TerminatorKind::FalseUnwind { .. }
-            | TerminatorKind::FalseEdge { .. }
-            | TerminatorKind::Yield { .. }
-            | TerminatorKind::CoroutineDrop) => {
+            TerminatorKind::Yield { .. } | TerminatorKind::CoroutineDrop => {
+                self.penalty += CALL_PENALTY;
+            }
+            kind @ (TerminatorKind::FalseUnwind { .. } | TerminatorKind::FalseEdge { .. }) => {
                 bug!("{kind:?} should not be in runtime MIR");
             }
         }
@@ -193,7 +193,8 @@ pub(super) fn is_call_like(terminator: &Terminator<'_>) -> bool {
         | Return
         | Unreachable => false,
 
-        Yield { .. } | CoroutineDrop | FalseEdge { .. } | FalseUnwind { .. } => {
+        Yield { .. } | CoroutineDrop => true,
+        FalseEdge { .. } | FalseUnwind { .. } => {
             unreachable!()
         }
     }

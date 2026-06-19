@@ -486,6 +486,19 @@ pub(crate) fn llfn_attrs_from_instance<'ll, 'tcx>(
 
     if let Some(instance) = instance {
         to_add.extend(inline_attr(cx, tcx, instance, codegen_fn_attrs));
+
+        let is_presplit_coroutine = match instance.def {
+            ty::InstanceKind::Shim(ty::ShimKind::CoroutineRamp { .. })
+            | ty::InstanceKind::Shim(ty::ShimKind::AsyncDropGlueResume(..)) => true,
+            ty::InstanceKind::Shim(ty::ShimKind::FutureDropPoll(..)) => {
+                sess.opts.unstable_opts.backend_coroutines
+            }
+            _ => false,
+        };
+        if is_presplit_coroutine {
+            to_add.push(crate::llvm::AttributeKind::PresplitCoroutine.create_attr(cx.llcx));
+            to_add.push(llvm::CreateAttrString(cx.llcx, "is-coroutine-ramp"));
+        }
     }
 
     if sess.must_emit_unwind_tables() {

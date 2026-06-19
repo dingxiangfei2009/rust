@@ -1,5 +1,7 @@
 //@ run-pass
 //@ check-run-results
+//@ revisions: default retcon
+//@[retcon]compile-flags: -Z backend-coroutines
 // struct `Foo` has both sync and async drop.
 // Sync version is called in sync context, async version is called in async function.
 

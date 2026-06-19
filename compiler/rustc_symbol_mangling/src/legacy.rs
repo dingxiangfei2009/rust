@@ -68,7 +68,10 @@ pub(super) fn mangle<'tcx>(
         {
             // Add the name of the dropped type to the symbol name
             &*instance.args
-        } else if let ty::InstanceKind::Shim(ty::ShimKind::AsyncDropGlue(_, ty)) = instance.def {
+        } else if let ty::InstanceKind::Shim(
+            ty::ShimKind::AsyncDropGlue(_, ty) | ty::ShimKind::AsyncDropGlueResume(_, ty),
+        ) = instance.def
+        {
             let ty::Coroutine(_, cor_args) = ty.kind() else {
                 bug!();
             };
@@ -104,6 +107,12 @@ pub(super) fn mangle<'tcx>(
         }) => {
             p.write_str(if receiver_by_ref { "{{by-move-shim}}" } else { "{{by-ref-shim}}" })
                 .unwrap();
+        }
+        ty::InstanceKind::Shim(ty::ShimKind::CoroutineRamp { .. }) => {
+            p.write_str("{{ramp-shim}}").unwrap();
+        }
+        ty::InstanceKind::Shim(ty::ShimKind::AsyncDropGlueResume { .. }) => {
+            p.write_str("{{async-drop-resume-shim}}").unwrap();
         }
         _ => {}
     }

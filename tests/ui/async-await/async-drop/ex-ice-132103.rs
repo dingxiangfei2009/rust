@@ -3,6 +3,8 @@
 //! Fixed when re-work async drop to shim drop glue coroutine scheme.
 //@ compile-flags: -Zvalidate-mir -Zinline-mir=yes
 //@ edition: 2018
+//@ revisions: default retcon
+//@[retcon]compile-flags: -Z backend-coroutines
 #![feature(async_drop)]
 #![allow(incomplete_features)]
 
