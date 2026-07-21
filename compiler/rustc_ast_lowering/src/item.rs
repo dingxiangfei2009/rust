@@ -202,7 +202,8 @@ impl<'hir> LoweringContext<'_, 'hir> {
             | ItemKind::MacCall(..)
             | ItemKind::MacroDef(..)
             | ItemKind::Delegation(..)
-            | ItemKind::DelegationMac(..) => Vec::new(),
+            | ItemKind::DelegationMac(..)
+            | ItemKind::AutoImplTrait(..) => Vec::new(),
         }
     }
 
@@ -575,6 +576,9 @@ impl<'hir> LoweringContext<'_, 'hir> {
             }
             ItemKind::MacCall(..) | ItemKind::DelegationMac(..) => {
                 panic!("macros should have been expanded by now")
+            }
+            ItemKind::AutoImplTrait(..) => {
+                span_bug!(span, "auto impl lowering is not yet implemented")
             }
         }
     }

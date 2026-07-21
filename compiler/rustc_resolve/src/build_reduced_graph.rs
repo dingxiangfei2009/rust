@@ -984,6 +984,7 @@ impl<'a, 'ra, 'tcx> DefCollector<'a, 'ra, 'tcx> {
 
             // These items do not add names to modules.
             ItemKind::Impl { .. }
+            | ItemKind::AutoImplTrait(..)
             | ItemKind::ForeignMod(..)
             | ItemKind::GlobalAsm(..)
             | ItemKind::ConstBlock(..) => {}

@@ -3076,6 +3076,87 @@ impl<'a, 'ast, 'ra, 'tcx> LateResolutionVisitor<'a, 'ast, 'ra, 'tcx> {
 
             ItemKind::ExternCrate(..) => {}
 
+            ItemKind::AutoImplTrait(auto_impl) => {
+                // Create a rib for the generic parameters so they're in scope
+                // when resolving the supertrait path (e.g., `T` in `auto impl<T> Super<T>`).
+                self.with_generic_param_rib(
+                    &auto_impl.generics.params,
+                    RibKind::Item(HasGenericParams::Yes(auto_impl.generics.span), def_kind),
+                    item.id,
+                    LifetimeBinderKind::ImplBlock,
+                    auto_impl.generics.span,
+                    |this| {
+                        // Resolve the supertrait path (e.g., `Super` in `auto impl Super for trait Sub {}`).
+                        let path: Vec<_> = Segment::from_path(&auto_impl.trait_ref.path);
+                        let supertrait_res = this.smart_resolve_path_fragment(
+                            &None,
+                            &path,
+                            PathSource::Trait(AliasPossibility::No),
+                            Finalize::new(auto_impl.trait_ref.ref_id, auto_impl.trait_ref.path.span),
+                            RecordPartialRes::Yes,
+                            None,
+                        );
+
+                        // Register in trait_impls so the impl is visible to
+                        // coherence, specialization, and metadata encoding.
+                        let item_def_id = this.r.current_owner.def_id;
+                        let trait_id = supertrait_res.expect_full_res().opt_def_id();
+                        if let Some(trait_id) = trait_id {
+                            this.r
+                                .trait_impls
+                                .entry(trait_id)
+                                .or_default()
+                                .push(item_def_id);
+                        }
+
+                        // Walk the trait ref to resolve generic arguments
+                        // (e.g., `T` in `Super<T>`).
+                        visit::walk_trait_ref(this, &auto_impl.trait_ref);
+
+                        // Resolve the subtrait identifier (e.g., `Sub` in `auto impl Super for trait Sub {}`).
+                        if let Some(binding) = this.r.resolve_ident_in_lexical_scope(
+                            auto_impl.for_trait,
+                            TypeNS,
+                            &this.parent_scope,
+                            None,
+                            &this.ribs[TypeNS],
+                            None,
+                            None,
+                        ) {
+                            let res = binding.res();
+                            this.r.record_partial_res(item.id, PartialRes::new(res));
+                        }
+
+                        // Visit generics.
+                        this.visit_generics(&auto_impl.generics);
+
+                        // Set current_trait_ref so that resolve_impl_item's
+                        // check_trait_item can find the trait items and properly
+                        // feed visibility for the impl items.
+                        let new_val = trait_id.map(|id| {
+                            (this.r.expect_module(id), auto_impl.trait_ref.clone())
+                        });
+                        let original_trait_ref =
+                            replace(&mut this.current_trait_ref, new_val);
+
+                        // Resolve items in the body.
+                        let mut seen_trait_items = Default::default();
+                        for assoc_item in &auto_impl.items {
+                            with_owner(this, assoc_item.id, |this| {
+                                this.resolve_impl_item(
+                                    &**assoc_item,
+                                    &mut seen_trait_items,
+                                    trait_id,
+                                    true,
+                                );
+                            });
+                        }
+
+                        this.current_trait_ref = original_trait_ref;
+                    },
+                );
+            }
+
             ItemKind::MacCall(_) | ItemKind::DelegationMac(..) => {
                 panic!("unexpanded macro in resolve!")
             }
@@ -5667,7 +5748,8 @@ impl<'ast> Visitor<'ast> for ItemInfoCollector<'_, 'ast, '_, '_> {
             | ItemKind::MacroDef(..)
             | ItemKind::GlobalAsm(..)
             | ItemKind::MacCall(..)
-            | ItemKind::DelegationMac(..) => {}
+            | ItemKind::DelegationMac(..)
+            | ItemKind::AutoImplTrait(..) => {}
             ItemKind::Delegation(..) => {
                 // Delegated functions have lifetimes, their count is not necessarily zero.
                 // But skipping the delegation items here doesn't mean that the count will be considered zero,

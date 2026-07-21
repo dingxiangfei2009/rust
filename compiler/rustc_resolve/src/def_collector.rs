@@ -212,6 +212,7 @@ impl<'a, 'ra, 'tcx> visit::Visitor<'a> for DefCollector<'a, 'ra, 'tcx> {
                 self.brg_visit_mac_call_in_module(i.id);
                 return;
             }
+            ItemKind::AutoImplTrait(..) => DefKind::Impl { of_trait: true },
             ItemKind::DelegationMac(..) => unreachable!(),
         };
         self.with_owner(

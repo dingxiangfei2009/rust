@@ -440,6 +440,23 @@ impl<'a> State<'a> {
                 DelegationKind::Single,
                 &deleg.body,
             ),
+            ast::ItemKind::AutoImplTrait(auto_impl) => {
+                let (cb, ib) = self.head("");
+                self.print_visibility(&item.vis);
+                self.print_safety(auto_impl.safety);
+                self.word("auto impl ");
+                self.print_trait_ref(&auto_impl.trait_ref);
+                self.word(" for trait ");
+                self.print_ident(auto_impl.for_trait);
+                self.word(" ");
+                self.bopen(ib);
+                self.print_inner_attributes(&item.attrs);
+                for impl_item in &auto_impl.items {
+                    self.print_assoc_item(impl_item);
+                }
+                let empty = item.attrs.is_empty() && auto_impl.items.is_empty();
+                self.bclose(item.span, empty, cb);
+            }
             ast::ItemKind::DelegationMac(deleg) => self.print_delegation(
                 &item.attrs,
                 &item.vis,

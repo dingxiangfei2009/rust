@@ -589,7 +589,8 @@ impl<'v> ast_visit::Visitor<'v> for StatCollector<'v> {
                 MacCall,
                 MacroDef,
                 Delegation,
-                DelegationMac
+                DelegationMac,
+                AutoImplTrait
             ]
         );
         ast_visit::walk_item(self, i)

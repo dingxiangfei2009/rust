@@ -305,6 +305,9 @@ impl<'a> Parser<'a> {
             // STATIC ITEM
             let mutability = self.parse_mutability();
             self.parse_static_item(safety, mutability)?
+        } else if self.check_auto_impl_frontmatter() {
+            // AUTO IMPL ITEM (supertrait auto-implementation)
+            self.parse_auto_impl_item(attrs)?
         } else if self.check_keyword_case(exp!(Trait), case) || self.check_trait_front_matter() {
             // TRAIT ITEM
             self.parse_item_trait(attrs, lo)?
@@ -1145,6 +1148,75 @@ impl<'a> Parser<'a> {
                 })
             })
         }
+    }
+
+    /// Checks if the token stream starts with `[unsafe]? auto impl`,
+    /// which introduces a supertrait auto-implementation item.
+    ///
+    /// Must be checked BEFORE `check_trait_front_matter()` to avoid
+    /// `auto` being consumed as a trait prefix.
+    fn check_auto_impl_frontmatter(&mut self) -> bool {
+        // `auto impl ...`
+        (self.check_keyword(exp!(Auto)) && self.is_keyword_ahead(1, &[kw::Impl]))
+        // `unsafe auto impl ...`
+        || (self.check_keyword(exp!(Unsafe))
+            && self.is_keyword_ahead(1, &[kw::Auto])
+            && self.is_keyword_ahead(2, &[kw::Impl]))
+    }
+
+    /// Parses `[unsafe]? auto impl <TraitPath> for trait <Ident> { [items] }`.
+    fn parse_auto_impl_item(
+        &mut self,
+        attrs: &mut AttrVec,
+    ) -> PResult<'a, ItemKind> {
+        let safety = self.parse_safety(Case::Sensitive);
+        self.expect_keyword(exp!(Auto))?;
+        self.expect_keyword(exp!(Impl))?;
+
+        self.psess.gated_spans.gate(sym::supertrait_auto_impl, self.prev_token.span);
+
+        // Parse generic parameters if present: `auto impl<T> ...`
+        let mut generics = if self.choose_generics_over_qpath(0) {
+            self.parse_generics()?
+        } else {
+            let mut generics = Generics::default();
+            generics.span = self.prev_token.span.shrink_to_hi();
+            generics
+        };
+
+        // Parse the supertrait path.
+        // Parse the supertrait as a type, then extract the path.
+        let ty = self.parse_ty()?;
+        let path = match ty.kind {
+            TyKind::Path(None, path) => path,
+            _ => {
+                return Err(self.dcx().create_err(diagnostics::ExpectedTraitInTraitImplFoundType {
+                    span: ty.span,
+                }));
+            }
+        };
+        let trait_ref = TraitRef { path, ref_id: ty.id };
+
+        // Expect `for trait`.
+        self.expect_keyword(exp!(For))?;
+        self.expect_keyword(exp!(Trait))?;
+
+        // Parse the subtrait identifier.
+        let for_trait = self.parse_ident()?;
+
+        // Parse the where clause: `auto impl<T> Super<T> for trait Sub where T: Clone { ... }`
+        generics.where_clause = self.parse_where_clause()?;
+
+        // Parse the body `{ ... }` (may be empty).
+        let items = self.parse_item_list(attrs, |p| p.parse_impl_item(ForceCollect::No))?;
+
+        Ok(ItemKind::AutoImplTrait(Box::new(AutoImplTrait {
+            safety,
+            generics,
+            trait_ref,
+            for_trait,
+            items,
+        })))
     }
 
     /// Parses `[impl(in? path)]? const? unsafe? auto? trait Foo { ... }` or `trait Foo = Bar;`.

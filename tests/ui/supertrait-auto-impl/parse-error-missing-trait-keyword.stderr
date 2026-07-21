@@ -1,0 +1,8 @@
+error: expected `trait`, found `Sub`
+  --> $DIR/parse-error-missing-trait-keyword.rs:8:21
+   |
+LL | auto impl Super for Sub {}
+   |                     ^^^ expected `trait`
+
+error: aborting due to 1 previous error
+

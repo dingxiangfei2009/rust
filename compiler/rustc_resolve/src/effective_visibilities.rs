@@ -408,7 +408,8 @@ impl<'a, 'ra, 'tcx> Visitor<'a> for EffectiveVisibilitiesVisitor<'a, 'ra, 'tcx> 
             | ast::ItemKind::TraitAlias(..)
             | ast::ItemKind::ForeignMod(..)
             | ast::ItemKind::Fn(..)
-            | ast::ItemKind::Delegation(..) => return,
+            | ast::ItemKind::Delegation(..)
+            | ast::ItemKind::AutoImplTrait(..) => return,
         }
     }
 }
