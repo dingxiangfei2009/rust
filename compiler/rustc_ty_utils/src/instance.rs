@@ -150,16 +150,11 @@ fn resolve_associated_item<'tcx>(
                     && let Some(subtrait_def_id) = impl_.delegation_subtrait
                 {
                     let trait_def_id = tcx.impl_trait_id(impl_data.impl_def_id);
-                    // Find the auto impl matching this subtrait + supertrait.
+                    // Find the auto impl matching this subtrait + supertrait
+                    // using the query (works cross-crate).
                     tcx.all_impls(trait_def_id)
                         .find(|&cand| {
-                            cand.as_local().is_some_and(|lid| {
-                                matches!(
-                                    &tcx.hir_expect_item(lid).kind,
-                                    hir::ItemKind::AutoImplTrait { for_trait_def_id, .. }
-                                        if *for_trait_def_id == subtrait_def_id
-                                )
-                            })
+                            tcx.auto_impl_for_trait(cand) == Some(subtrait_def_id)
                         })
                         .unwrap_or(impl_data.impl_def_id)
                 } else {

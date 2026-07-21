@@ -2219,6 +2219,17 @@ impl<'a, 'tcx> EncodeContext<'a, 'tcx> {
                     .or_default()
                     .push((id.owner_id.def_id.local_def_index, simplified_self_ty));
 
+                // For auto impls, encode the for_trait_def_id (subtrait).
+                if is_auto_impl_trait {
+                    if let hir::ItemKind::AutoImplTrait { for_trait_def_id, .. } =
+                        tcx.hir_item(id).kind
+                    {
+                        self.tables
+                            .auto_impl_for_trait
+                            .set_some(def_id.index, for_trait_def_id.into());
+                    }
+                }
+
                 // AutoImplTrait items don't participate in specialization
                 // or CoerceUnsized.
                 if !is_auto_impl_trait {

@@ -446,6 +446,7 @@ define_tables! {
     promoted_mir: Table<DefIndex, LazyValue<IndexVec<mir::Promoted, mir::Body<'static>>>>,
     thir_abstract_const: Table<DefIndex, LazyValue<ty::EarlyBinder<'static, ty::Const<'static>>>>,
     impl_parent: Table<DefIndex, RawDefId>,
+    auto_impl_for_trait: Table<DefIndex, RawDefId>,
     const_conditions: Table<DefIndex, LazyValue<ty::ConstConditions<'static>>>,
     // FIXME(eddyb) perhaps compute this on the fly if cheap enough?
     coerce_unsized_info: Table<DefIndex, LazyValue<ty::adjustment::CoerceUnsizedInfo>>,

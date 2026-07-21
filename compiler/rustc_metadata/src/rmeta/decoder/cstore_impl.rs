@@ -260,6 +260,7 @@ provide! { tcx, def_id, other, cdata,
     params_in_repr => { table }
     def_kind => { cdata.def_kind(def_id.index) }
     impl_parent => { table }
+    auto_impl_for_trait => { table }
     defaultness => { table_direct }
     constness => { table_direct }
     const_conditions => { table }

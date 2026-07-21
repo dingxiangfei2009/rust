@@ -1553,6 +1553,13 @@ rustc_queries! {
         separate_provide_extern
     }
 
+    /// For an `auto impl Trait for trait SubTrait`, returns the `DefId`
+    /// of the subtrait. Returns `None` for non-auto-impl items.
+    query auto_impl_for_trait(def_id: DefId) -> Option<DefId> {
+        desc { "looking up auto impl subtrait of `{}`", tcx.def_path_str(def_id) }
+        separate_provide_extern
+    }
+
     query is_mir_available(key: DefId) -> bool {
         desc { "checking if item has MIR available: `{}`", tcx.def_path_str(key) }
         cache_on_disk
