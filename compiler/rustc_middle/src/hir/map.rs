@@ -729,6 +729,7 @@ impl<'tcx> TyCtxt<'tcx> {
                     ItemKind::Trait { .. } => "trait",
                     ItemKind::TraitAlias(..) => "trait alias",
                     ItemKind::Impl { .. } => "impl",
+                    ItemKind::AutoImplTrait { .. } => "auto impl",
                 };
                 format!("{id} ({item_str} {})", path_str(item.owner_id.def_id))
             }

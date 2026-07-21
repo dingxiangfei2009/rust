@@ -577,8 +577,41 @@ impl<'hir> LoweringContext<'_, 'hir> {
             ItemKind::MacCall(..) | ItemKind::DelegationMac(..) => {
                 panic!("macros should have been expanded by now")
             }
-            ItemKind::AutoImplTrait(..) => {
-                span_bug!(span, "auto impl lowering is not yet implemented")
+            ItemKind::AutoImplTrait(auto_impl_trait) => {
+                let safety = self.lower_safety(auto_impl_trait.safety, hir::Safety::Safe);
+                let modifiers = TraitBoundModifiers {
+                    constness: BoundConstness::Never,
+                    asyncness: BoundAsyncness::Normal,
+                    polarity: BoundPolarity::Positive,
+                };
+                let (generics, trait_ref) = self.lower_generics(
+                    &auto_impl_trait.generics,
+                    ImplTraitContext::Disallowed(ImplTraitPosition::Generic),
+                    |this| {
+                        this.lower_trait_ref(
+                            modifiers,
+                            &auto_impl_trait.trait_ref,
+                            ImplTraitContext::Disallowed(ImplTraitPosition::Trait),
+                        )
+                    },
+                );
+                // Retrieve the resolved DefId for the subtrait.
+                let for_trait_def_id = self
+                    .get_partial_res(id)
+                    .and_then(|r| r.expect_full_res().opt_def_id())
+                    .unwrap_or_else(|| DefId::local(rustc_span::def_id::CRATE_DEF_INDEX));
+                let for_trait_ident = self.lower_ident(auto_impl_trait.for_trait);
+                // Items are not fully integrated into the type system yet
+                // (visibility, specialization graph). Pass empty slice until
+                // those are ready.
+                hir::ItemKind::AutoImplTrait {
+                    safety,
+                    generics,
+                    trait_ref,
+                    for_trait_ident,
+                    for_trait_def_id,
+                    items: &[],
+                }
             }
         }
     }

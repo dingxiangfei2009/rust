@@ -367,7 +367,9 @@ impl<'tcx> Visitor<'tcx> for SpanMapVisitor<'tcx> {
             | ItemKind::ForeignMod { .. }
             | ItemKind::GlobalAsm { .. }
             // We already have "visit_mod" above so no need to check it here.
-            | ItemKind::Mod(..) => {}
+            | ItemKind::Mod(..)
+            // FIXME(supertrait_auto_impl): Design needed for auto impl rendering.
+            | ItemKind::AutoImplTrait { .. } => {}
         }
 
         intravisit::walk_item(self, item);

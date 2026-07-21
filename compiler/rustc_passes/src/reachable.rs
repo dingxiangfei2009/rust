@@ -261,7 +261,8 @@ impl<'tcx> ReachableContext<'tcx> {
                     | hir::ItemKind::Struct(..)
                     | hir::ItemKind::Enum(..)
                     | hir::ItemKind::Union(..)
-                    | hir::ItemKind::GlobalAsm { .. } => {}
+                    | hir::ItemKind::GlobalAsm { .. }
+                    | hir::ItemKind::AutoImplTrait { .. } => {}
                 }
             }
             Node::TraitItem(trait_method) => {

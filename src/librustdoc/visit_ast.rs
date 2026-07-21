@@ -582,6 +582,12 @@ impl<'a, 'tcx> RustdocVisitor<'a, 'tcx> {
                     self.add_impl_to_current_mod(item, impl_);
                 }
             }
+            // FIXME(supertrait_auto_impl): Auto impls are currently skipped in
+            // documentation. When this feature is stabilised, we will need a
+            // rustdoc design for rendering auto impls — e.g., showing them as
+            // "provided by" annotations on the concrete trait implementations
+            // they generate, or as a separate section on the subtrait's page.
+            hir::ItemKind::AutoImplTrait { .. } => {}
         }
     }
 

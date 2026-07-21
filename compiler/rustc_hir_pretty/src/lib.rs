@@ -807,6 +807,20 @@ impl<'a> State<'a> {
                 self.end(ib);
                 self.end(cb);
             }
+            hir::ItemKind::AutoImplTrait { safety, generics, ref trait_ref, for_trait_ident, .. } => {
+                let (cb, ib) = self.head("");
+                self.print_safety(safety);
+                self.word("auto impl");
+                self.nbsp();
+                self.print_trait_ref(trait_ref);
+                self.word(" for trait ");
+                self.print_ident(for_trait_ident);
+                self.print_generic_params(generics.params);
+                self.print_where_clause(generics);
+                self.word(" {}");
+                self.end(ib);
+                self.end(cb);
+            }
         }
         self.ann.post(self, AnnNode::Item(item))
     }

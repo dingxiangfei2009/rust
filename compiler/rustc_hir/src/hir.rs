@@ -4882,6 +4882,16 @@ pub enum ItemKind<'hir> {
 
     /// An implementation, e.g., `impl<A> Trait for Foo { .. }`.
     Impl(Impl<'hir>),
+
+    /// A supertrait auto-implementation, e.g., `auto impl Super for trait Sub { .. }`.
+    AutoImplTrait {
+        safety: Safety,
+        generics: &'hir Generics<'hir>,
+        trait_ref: TraitRef<'hir>,
+        for_trait_ident: Ident,
+        for_trait_def_id: DefId,
+        items: &'hir [ImplItemId],
+    },
 }
 
 /// Represents an impl block declaration.
@@ -4928,7 +4938,8 @@ impl ItemKind<'_> {
             ItemKind::Use(_, UseKind::Glob | UseKind::ListStem)
             | ItemKind::ForeignMod { .. }
             | ItemKind::GlobalAsm { .. }
-            | ItemKind::Impl(_) => None,
+            | ItemKind::Impl(_)
+            | ItemKind::AutoImplTrait { .. } => None,
         }
     }
 
@@ -4942,7 +4953,8 @@ impl ItemKind<'_> {
             | ItemKind::Union(_, generics, _)
             | ItemKind::Trait { generics, .. }
             | ItemKind::TraitAlias(_, _, generics, _)
-            | ItemKind::Impl(Impl { generics, .. }) => generics,
+            | ItemKind::Impl(Impl { generics, .. })
+            | ItemKind::AutoImplTrait { generics, .. } => generics,
             _ => return None,
         })
     }

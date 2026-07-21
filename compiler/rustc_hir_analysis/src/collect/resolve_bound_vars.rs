@@ -649,7 +649,8 @@ impl<'a, 'tcx> Visitor<'tcx> for BoundVarContext<'a, 'tcx> {
             | hir::ItemKind::Union(_, generics, _)
             | hir::ItemKind::Trait { generics, .. }
             | hir::ItemKind::TraitAlias(_, _, generics, ..)
-            | hir::ItemKind::Impl(hir::Impl { generics, .. }) => {
+            | hir::ItemKind::Impl(hir::Impl { generics, .. })
+            | hir::ItemKind::AutoImplTrait { generics, .. } => {
                 // These kinds of items have only early-bound lifetime parameters.
                 self.visit_early(item.hir_id(), generics, |this| intravisit::walk_item(this, item));
             }
