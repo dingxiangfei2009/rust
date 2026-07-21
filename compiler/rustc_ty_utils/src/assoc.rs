@@ -36,6 +36,12 @@ fn associated_item_def_ids(tcx: TyCtxt<'_>, def_id: LocalDefId) -> &[DefId] {
             }))
         }
         hir::ItemKind::Impl(impl_) => {
+            // For delegation impls (`= SubA::Super;`), return the auto impl's items.
+            if let Some(subtrait_def_id) = impl_.delegation_subtrait {
+                if let Some(auto_impl_items) = find_auto_impl_items(tcx, def_id, subtrait_def_id) {
+                    return auto_impl_items;
+                }
+            }
             // We collect RPITITs for each trait method's return type, on the impl side too and
             // create a corresponding associated item using
             // associated_types_for_impl_traits_in_trait_or_impl query.
@@ -52,6 +58,35 @@ fn associated_item_def_ids(tcx: TyCtxt<'_>, def_id: LocalDefId) -> &[DefId] {
         }
         _ => span_bug!(item.span, "associated_item_def_ids: not impl or trait"),
     }
+}
+
+/// For a delegation impl (`impl Super for Foo = SubA::Super;`), find the
+/// `auto impl Super for trait SubA { ... }` and return its associated item DefIds.
+fn find_auto_impl_items<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    delegation_def_id: LocalDefId,
+    subtrait_def_id: DefId,
+) -> Option<&'tcx [DefId]> {
+    // Get the supertrait from the delegation impl's trait header.
+    let impl_header = tcx.impl_trait_header(delegation_def_id);
+    let supertrait_def_id = impl_header.trait_ref.def_id();
+
+    // Search all impls of the supertrait for a matching auto impl.
+    for impl_def_id in tcx.all_impls(supertrait_def_id) {
+        if let Some(local_impl_id) = impl_def_id.as_local() {
+            let item = tcx.hir_expect_item(local_impl_id);
+            if let hir::ItemKind::AutoImplTrait { for_trait_def_id, items, .. } = &item.kind {
+                if *for_trait_def_id == subtrait_def_id {
+                    return Some(
+                        tcx.arena.alloc_from_iter(
+                            items.iter().map(|item| item.owner_id.to_def_id())
+                        )
+                    );
+                }
+            }
+        }
+    }
+    None
 }
 
 fn associated_items(tcx: TyCtxt<'_>, def_id: DefId) -> ty::AssocItems {

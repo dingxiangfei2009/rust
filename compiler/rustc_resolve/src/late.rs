@@ -2861,7 +2861,7 @@ impl<'a, 'ast, 'ra, 'tcx> LateResolutionVisitor<'a, 'ast, 'ra, 'tcx> {
                 self.resolve_adt(item, generics);
             }
 
-            ItemKind::Impl(Impl { generics, of_trait, self_ty, items: impl_items, .. }) => {
+            ItemKind::Impl(Impl { generics, of_trait, self_ty, items: impl_items, delegation, .. }) => {
                 self.diag_metadata.current_impl_items = Some(impl_items);
                 self.resolve_implementation(
                     &item.attrs,
@@ -2872,6 +2872,28 @@ impl<'a, 'ast, 'ra, 'tcx> LateResolutionVisitor<'a, 'ast, 'ra, 'tcx> {
                     impl_items,
                 );
                 self.diag_metadata.current_impl_items = None;
+
+                // Resolve the delegation path (e.g., `SubA::Super` in
+                // `impl Super for Foo = SubA::Super;`). The first segment
+                // is the subtrait whose auto impl provides the items.
+                if let Some(delegation_path) = delegation {
+                    if let [first, ..] = &delegation_path.segments[..] {
+                        if let Some(binding) = self.r.resolve_ident_in_lexical_scope(
+                            first.ident,
+                            TypeNS,
+                            &self.parent_scope,
+                            None,
+                            &self.ribs[TypeNS],
+                            None,
+                            None,
+                        ) {
+                            let res = binding.res();
+                            // Record resolution on the first path segment's NodeId
+                            // so lowering can retrieve the subtrait DefId.
+                            self.r.record_partial_res(first.id, PartialRes::new(res));
+                        }
+                    }
+                }
             }
 
             ItemKind::Trait(Trait { generics, bounds, items, impl_restriction, .. }) => {

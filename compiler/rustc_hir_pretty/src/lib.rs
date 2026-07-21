@@ -713,7 +713,7 @@ impl<'a> State<'a> {
                 let (cb, ib) = self.head("union");
                 self.print_struct(ident.name, generics, struct_def, item.span, true, cb, ib);
             }
-            hir::ItemKind::Impl(hir::Impl { generics, of_trait, self_ty, items, constness }) => {
+            hir::ItemKind::Impl(hir::Impl { generics, of_trait, self_ty, items, constness, delegation_subtrait: _ }) => {
                 let (cb, ib) = self.head("");
 
                 let impl_generics = |this: &mut Self| {

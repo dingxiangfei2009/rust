@@ -850,6 +850,7 @@ impl<'a> TraitDef<'a> {
                 constness: if self.is_const { ast::Const::Yes(DUMMY_SP) } else { ast::Const::No },
                 self_ty: self_type,
                 items: methods.into_iter().chain(associated_types).collect(),
+                delegation: None,
             }),
         )
     }

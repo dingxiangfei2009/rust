@@ -758,7 +758,18 @@ impl<'a> Parser<'a> {
 
         generics.where_clause = self.parse_where_clause()?;
 
-        let impl_items = if is_reuse {
+        // Parse `= Path;` delegation syntax: `impl Super for Foo = SubA::Super;`
+        let delegation = if self.eat(exp!(Eq)) {
+            let path = self.parse_path(PathStyle::Type)?;
+            self.expect_semi()?;
+            Some(path)
+        } else {
+            None
+        };
+
+        let impl_items = if delegation.is_some() {
+            Default::default()
+        } else if is_reuse {
             Default::default()
         } else {
             self.parse_item_list(attrs, |p| p.parse_impl_item(ForceCollect::No))?
@@ -833,7 +844,7 @@ impl<'a> Parser<'a> {
             }
         };
 
-        Ok(ItemKind::Impl(Impl { generics, of_trait, self_ty, items: impl_items, constness }))
+        Ok(ItemKind::Impl(Impl { generics, of_trait, self_ty, items: impl_items, constness, delegation }))
     }
 
     fn parse_item_delegation(

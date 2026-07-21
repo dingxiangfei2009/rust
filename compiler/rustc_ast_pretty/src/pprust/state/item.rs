@@ -326,7 +326,7 @@ impl<'a> State<'a> {
                 let (cb, ib) = self.head(visibility_qualified(&item.vis, "union"));
                 self.print_struct(struct_def, generics, *ident, item.span, true, cb, ib);
             }
-            ast::ItemKind::Impl(ast::Impl { generics, of_trait, self_ty, items, constness }) => {
+            ast::ItemKind::Impl(ast::Impl { generics, of_trait, self_ty, items, constness, delegation }) => {
                 let (cb, ib) = self.head("");
                 self.print_visibility(&item.vis);
 
@@ -362,14 +362,20 @@ impl<'a> State<'a> {
                 self.print_type(self_ty);
                 self.print_where_clause(&generics.where_clause);
 
-                self.space();
-                self.bopen(ib);
-                self.print_inner_attributes(&item.attrs);
-                for impl_item in items {
-                    self.print_assoc_item(impl_item);
+                if let Some(delegation) = delegation {
+                    self.word_space(" =");
+                    self.print_path(delegation, false, 0);
+                    self.word(";");
+                } else {
+                    self.space();
+                    self.bopen(ib);
+                    self.print_inner_attributes(&item.attrs);
+                    for impl_item in items {
+                        self.print_assoc_item(impl_item);
+                    }
+                    let empty = item.attrs.is_empty() && items.is_empty();
+                    self.bclose(item.span, empty, cb);
                 }
-                let empty = item.attrs.is_empty() && items.is_empty();
-                self.bclose(item.span, empty, cb);
             }
             ast::ItemKind::Trait(ast::Trait {
                 impl_restriction,

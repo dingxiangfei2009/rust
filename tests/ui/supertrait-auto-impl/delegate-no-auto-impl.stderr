@@ -1,0 +1,12 @@
+error[E0046]: not all trait items implemented, missing: `value`
+  --> $DIR/delegate-no-auto-impl.rs:23:1
+   |
+LL |     fn value(&self) -> i32;
+   |     ----------------------- `value` from trait
+...
+LL | impl Super for Foo = SubA::Super;
+   | ^^^^^^^^^^^^^^^^^^ missing `value` in implementation
+
+error: aborting due to 1 previous error
+
+For more information about this error, try `rustc --explain E0046`.

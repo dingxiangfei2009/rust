@@ -837,6 +837,10 @@ pub(crate) fn check_item_type(tcx: TyCtxt<'_>, def_id: LocalDefId) -> Result<(),
                 tcx.hir_expect_item(def_id).kind,
                 hir::ItemKind::AutoImplTrait { .. }
             );
+            let is_delegation = matches!(
+                tcx.hir_expect_item(def_id).kind,
+                hir::ItemKind::Impl(hir::Impl { delegation_subtrait: Some(_), .. })
+            );
             tcx.ensure_ok().generics_of(def_id);
             tcx.ensure_ok().type_of(def_id);
             tcx.ensure_ok().predicates_of(def_id);
@@ -846,13 +850,28 @@ pub(crate) fn check_item_type(tcx: TyCtxt<'_>, def_id: LocalDefId) -> Result<(),
                 res = res
                     .and(tcx.ensure_result().coherent_trait(impl_trait_header.trait_ref.def_id()));
 
-                if res.is_ok() && !is_auto_impl_trait {
+                if res.is_ok() && !is_auto_impl_trait && !is_delegation {
                     // Checking this only makes sense if the all trait impls satisfy basic
                     // requirements (see `coherent_trait` query), otherwise
                     // we run into infinite recursions a lot.
                     // Skip for AutoImplTrait: items don't participate in the
                     // specialization graph yet.
                     check_impl_items_against_trait(tcx, def_id, impl_trait_header);
+                }
+
+                // For delegation impls, verify the auto impl actually exists
+                // and provides all required items.
+                if res.is_ok() && is_delegation {
+                    let assoc_items = tcx.associated_item_def_ids(def_id);
+                    let trait_items = tcx.associated_item_def_ids(
+                        impl_trait_header.trait_ref.def_id()
+                    );
+                    // If the delegation didn't find an auto impl, assoc_items
+                    // will be empty while trait_items won't be.
+                    if assoc_items.len() < trait_items.len() {
+                        // Fall back to normal check which will emit E0046.
+                        check_impl_items_against_trait(tcx, def_id, impl_trait_header);
+                    }
                 }
             }
         }

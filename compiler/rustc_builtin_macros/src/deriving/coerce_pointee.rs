@@ -142,6 +142,7 @@ pub(crate) fn expand_deriving_coerce_pointee(
                     constness: ast::Const::No,
                     self_ty: self_type.clone(),
                     items: ThinVec::new(),
+                    delegation: None,
                 }),
             ),
         ));
@@ -165,6 +166,7 @@ pub(crate) fn expand_deriving_coerce_pointee(
                 constness: ast::Const::No,
                 self_ty: self_type.clone(),
                 items: ThinVec::new(),
+                delegation: None,
             }),
         );
         push(Annotatable::Item(item));

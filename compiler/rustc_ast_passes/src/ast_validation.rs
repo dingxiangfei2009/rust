@@ -1398,6 +1398,7 @@ impl Visitor<'_> for AstValidator<'_> {
                 of_trait: Some(TraitImplHeader { safety, polarity, defaultness: _, trait_ref: t }),
                 self_ty,
                 items,
+                delegation: _,
             }) => {
                 self.visit_attrs_vis(&item.attrs, &item.vis);
                 self.visibility_not_permitted(
@@ -1439,7 +1440,7 @@ impl Visitor<'_> for AstValidator<'_> {
                     },
                 );
             }
-            ItemKind::Impl(Impl { generics, of_trait: None, self_ty, items, constness }) => {
+            ItemKind::Impl(Impl { generics, of_trait: None, self_ty, items, constness, delegation: _ }) => {
                 self.visit_attrs_vis(&item.attrs, &item.vis);
                 self.visibility_not_permitted(
                     &item.vis,

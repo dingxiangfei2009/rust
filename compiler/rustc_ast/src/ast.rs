@@ -3950,6 +3950,10 @@ pub struct Impl {
     pub of_trait: Option<Box<TraitImplHeader>>,
     pub self_ty: Box<Ty>,
     pub items: ThinVec<Box<AssocItem>>,
+    /// `impl Super for Foo = SubA::Super;` — delegate to an auto impl.
+    /// The path names the subtrait whose auto impl should be used
+    /// (e.g., `SubA::Super` means "use the auto impl from SubA").
+    pub delegation: Option<Path>,
 }
 
 #[derive(Clone, Encodable, Decodable, Debug)]
@@ -4496,9 +4500,9 @@ mod size_asserts {
     static_assert_size!(GenericBound, 80);
     static_assert_size!(GenericParam, 80);
     static_assert_size!(Generics, 40);
-    static_assert_size!(Impl, 80);
-    static_assert_size!(Item, 144);
-    static_assert_size!(ItemKind, 88);
+    static_assert_size!(Impl, 96);
+    static_assert_size!(Item, 152);
+    static_assert_size!(ItemKind, 96);
     static_assert_size!(Lifetime, 16);
     static_assert_size!(LitKind, 24);
     static_assert_size!(Local, 96);

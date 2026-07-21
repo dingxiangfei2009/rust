@@ -4905,6 +4905,10 @@ pub struct Impl<'hir> {
     pub self_ty: &'hir Ty<'hir>,
     pub items: &'hir [ImplItemId],
     pub constness: Constness,
+    /// When this impl uses `= SubA::Super;` delegation syntax, stores the
+    /// resolved DefId of the subtrait (`SubA`) whose auto impl should provide
+    /// the associated items.
+    pub delegation_subtrait: Option<DefId>,
 }
 
 #[derive(Debug, Clone, Copy, StableHash)]
@@ -5519,7 +5523,7 @@ mod size_asserts {
     static_assert_size!(GenericArg<'_>, 16);
     static_assert_size!(GenericBound<'_>, 64);
     static_assert_size!(Generics<'_>, 56);
-    static_assert_size!(Impl<'_>, 48);
+    static_assert_size!(Impl<'_>, 56);
     static_assert_size!(ImplItem<'_>, 88);
     static_assert_size!(ImplItemKind<'_>, 40);
     static_assert_size!(Item<'_>, 88);

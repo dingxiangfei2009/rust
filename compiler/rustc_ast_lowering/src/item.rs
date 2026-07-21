@@ -447,6 +447,7 @@ impl<'hir> LoweringContext<'_, 'hir> {
                 self_ty: ty,
                 items: impl_items,
                 constness,
+                delegation,
             }) => {
                 // Lower the "impl header" first. This ordering is important
                 // for in-band lifetimes! Consider `'a` here:
@@ -482,12 +483,22 @@ impl<'hir> LoweringContext<'_, 'hir> {
 
                 let constness = self.lower_constness(attrs, *constness);
 
+                // Resolve the delegation subtrait DefId from the first
+                // path segment (e.g., `SubA` in `= SubA::Super;`).
+                let delegation_subtrait = delegation.as_ref().and_then(|path| {
+                    path.segments.first().and_then(|seg| {
+                        self.get_partial_res(seg.id)
+                            .and_then(|r| r.expect_full_res().opt_def_id())
+                    })
+                });
+
                 hir::ItemKind::Impl(hir::Impl {
                     generics,
                     of_trait,
                     self_ty: lowered_ty,
                     items: new_impl_items,
                     constness,
+                    delegation_subtrait,
                 })
             }
             ItemKind::Trait(Trait {

@@ -1,5 +1,5 @@
 use rustc_errors::ErrorGuaranteed;
-use rustc_hir::LangItem;
+use rustc_hir::{self as hir, LangItem};
 use rustc_hir::def::DefKind;
 use rustc_hir::def_id::DefId;
 use rustc_infer::infer::TyCtxtInferExt;
@@ -140,13 +140,39 @@ fn resolve_associated_item<'tcx>(
             assert!(!rcvr_args.has_infer());
             assert!(!trait_ref.has_infer());
 
-            let trait_def_id = tcx.impl_trait_id(impl_data.impl_def_id);
+            // For delegation impls (e.g., `impl Super for Foo = SubA::Super;`),
+            // redirect to the auto impl so the normal resolution path works.
+            // The delegation impl has no items of its own; its items come from
+            // the auto impl, so we need to resolve through the auto impl.
+            let effective_impl_def_id =
+                if let Some(local_id) = impl_data.impl_def_id.as_local()
+                    && let hir::ItemKind::Impl(impl_) = &tcx.hir_expect_item(local_id).kind
+                    && let Some(subtrait_def_id) = impl_.delegation_subtrait
+                {
+                    let trait_def_id = tcx.impl_trait_id(impl_data.impl_def_id);
+                    // Find the auto impl matching this subtrait + supertrait.
+                    tcx.all_impls(trait_def_id)
+                        .find(|&cand| {
+                            cand.as_local().is_some_and(|lid| {
+                                matches!(
+                                    &tcx.hir_expect_item(lid).kind,
+                                    hir::ItemKind::AutoImplTrait { for_trait_def_id, .. }
+                                        if *for_trait_def_id == subtrait_def_id
+                                )
+                            })
+                        })
+                        .unwrap_or(impl_data.impl_def_id)
+                } else {
+                    impl_data.impl_def_id
+                };
+
+            let trait_def_id = tcx.impl_trait_id(effective_impl_def_id);
             let trait_def = tcx.trait_def(trait_def_id);
             let leaf_def = trait_def
-                .ancestors(tcx, impl_data.impl_def_id)?
+                .ancestors(tcx, effective_impl_def_id)?
                 .leaf_def(tcx, trait_item_id)
                 .unwrap_or_else(|| {
-                    bug!("{:?} not found in {:?}", trait_item_id, impl_data.impl_def_id);
+                    bug!("{:?} not found in {:?}", trait_item_id, effective_impl_def_id);
                 });
 
             // Since this is a trait item, we need to see if the item is either a trait
@@ -180,11 +206,18 @@ fn resolve_associated_item<'tcx>(
 
             let typing_env = typing_env.with_post_analysis_normalized(tcx);
             let (infcx, param_env) = tcx.infer_ctxt().build_with_typing_env(typing_env);
-            let args = rcvr_args.rebase_onto(tcx, trait_def_id, impl_data.args);
+            // For delegation impls, impl_data.args may be empty (concrete impl),
+            // but the auto impl needs [Self_type]. Build the right args.
+            let effective_impl_args = if effective_impl_def_id != impl_data.impl_def_id {
+                tcx.mk_args(&[rcvr_args.type_at(0).into()])
+            } else {
+                impl_data.args
+            };
+            let args = rcvr_args.rebase_onto(tcx, trait_def_id, effective_impl_args);
             let args = translate_args(
                 &infcx,
                 param_env,
-                impl_data.impl_def_id,
+                effective_impl_def_id,
                 args,
                 leaf_def.defining_node,
             );
@@ -200,7 +233,7 @@ fn resolve_associated_item<'tcx>(
             let self_ty = rcvr_args.type_at(0);
             if !self_ty.is_known_rigid() {
                 let predicates = tcx
-                    .predicates_of(impl_data.impl_def_id)
+                    .predicates_of(effective_impl_def_id)
                     .instantiate(tcx, impl_data.args)
                     .predicates;
                 let sized_def_id = tcx.lang_items().sized_trait();

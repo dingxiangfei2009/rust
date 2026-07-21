@@ -951,7 +951,7 @@ macro_rules! common_visitor_and_walkers {
         }
 
         impl_walkable!(|&$($mut)? $($lt)? self: Impl, vis: &mut V| {
-            let Impl { generics, of_trait, self_ty, items, constness: _ } = self;
+            let Impl { generics, of_trait, self_ty, items, constness: _, delegation } = self;
             try_visit!(vis.visit_generics(generics));
             if let Some(of_trait) = of_trait {
                 let TraitImplHeader { defaultness, safety, polarity, trait_ref } = of_trait;
@@ -959,6 +959,9 @@ macro_rules! common_visitor_and_walkers {
             }
             try_visit!(vis.visit_ty(self_ty));
             visit_visitable_with!($($mut)? vis, items, AssocCtxt::Impl { of_trait: of_trait.is_some() });
+            if let Some(delegation) = delegation {
+                try_visit!(vis.visit_path(delegation));
+            }
             V::Result::output()
         });
 
