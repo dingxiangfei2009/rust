@@ -177,6 +177,12 @@ fn gather_explicit_predicates_of(tcx: TyCtxt<'_>, def_id: LocalDefId) -> ty::Gen
             | ItemKind::TraitAlias(_, _, _, self_bounds) => {
                 is_trait = Some((self_bounds, item.span));
             }
+            ItemKind::AutoImplTrait { for_trait_def_id, .. } => {
+                // For `auto impl Super for trait Sub`, add `Self: Sub` predicate.
+                let self_ty = tcx.types.self_param;
+                let sub_trait_ref = ty::TraitRef::new(tcx, for_trait_def_id, [self_ty]);
+                predicates.insert((sub_trait_ref.upcast(tcx), tcx.def_span(def_id)));
+            }
             _ => {}
         }
     };

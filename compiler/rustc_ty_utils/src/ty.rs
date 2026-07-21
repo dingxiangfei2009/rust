@@ -93,6 +93,11 @@ fn defaultness(tcx: TyCtxt<'_>, def_id: LocalDefId) -> hir::Defaultness {
             ..
         })
         | hir::Node::TraitItem(hir::TraitItem { defaultness, .. }) => *defaultness,
+        // Auto impl traits are always final (non-default).
+        hir::Node::Item(hir::Item {
+            kind: hir::ItemKind::AutoImplTrait { .. },
+            ..
+        }) => hir::Defaultness::Final,
         node => {
             bug!("`defaultness` called on {:?}", node);
         }

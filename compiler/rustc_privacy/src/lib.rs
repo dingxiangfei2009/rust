@@ -1761,12 +1761,25 @@ fn check_mod_privacy(tcx: TyCtxt<'_>, mod_id: LocalModId) {
         }
 
         if let DefKind::Impl { of_trait: true } = tcx.def_kind(def_id) {
-            let trait_ref = tcx.impl_trait_ref(def_id);
-            let trait_ref = trait_ref.instantiate_identity().skip_norm_wip();
-            visitor.span =
-                tcx.hir_expect_item(def_id).expect_impl().of_trait.unwrap().trait_ref.path.span;
-            let _ =
-                visitor.visit_def_id(trait_ref.def_id, "trait", &trait_ref.print_only_trait_path());
+            let item = tcx.hir_expect_item(def_id);
+            // AutoImplTrait items use DefKind::Impl but don't have the Impl structure.
+            if let hir::ItemKind::AutoImplTrait { ref trait_ref, .. } = item.kind {
+                let impl_trait_ref = tcx.impl_trait_ref(def_id);
+                let impl_trait_ref = impl_trait_ref.instantiate_identity().skip_norm_wip();
+                visitor.span = trait_ref.path.span;
+                let _ = visitor.visit_def_id(
+                    impl_trait_ref.def_id,
+                    "trait",
+                    &impl_trait_ref.print_only_trait_path(),
+                );
+            } else {
+                let trait_ref = tcx.impl_trait_ref(def_id);
+                let trait_ref = trait_ref.instantiate_identity().skip_norm_wip();
+                visitor.span =
+                    item.expect_impl().of_trait.unwrap().trait_ref.path.span;
+                let _ =
+                    visitor.visit_def_id(trait_ref.def_id, "trait", &trait_ref.print_only_trait_path());
+            }
         }
     }
 }

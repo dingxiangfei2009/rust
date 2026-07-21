@@ -182,14 +182,17 @@ pub(super) fn type_of(tcx: TyCtxt<'_>, def_id: LocalDefId) -> ty::EarlyBinder<'_
                 Ty::new_adt(tcx, def, args)
             }
             ItemKind::GlobalAsm { .. } => tcx.typeck(def_id).node_type(hir_id),
+            // AutoImplTrait has a synthesized Self type parameter (from generics_of).
+            // Return Self (Param at index 0) as the self type, enabling
+            // `auto impl Super for trait Sub` to behave as `impl<Self: Sub> Super for Self`.
+            ItemKind::AutoImplTrait { .. } => tcx.types.self_param,
             ItemKind::Trait { .. }
             | ItemKind::TraitAlias(..)
             | ItemKind::Macro(..)
             | ItemKind::Mod(..)
             | ItemKind::ForeignMod { .. }
             | ItemKind::ExternCrate(..)
-            | ItemKind::Use(..)
-            | ItemKind::AutoImplTrait { .. } => {
+            | ItemKind::Use(..) => {
                 span_bug!(item.span, "compute_type_of_item: unexpected item type: {:?}", item.kind);
             }
         },

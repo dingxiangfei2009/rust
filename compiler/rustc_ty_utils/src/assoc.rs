@@ -47,6 +47,10 @@ fn associated_item_def_ids(tcx: TyCtxt<'_>, def_id: LocalDefId) -> &[DefId] {
                     .chain(rpitit_items.get(&item_def_id).into_flat_iter().copied())
             }))
         }
+        // AutoImplTrait items are in HIR but not fully integrated into the
+        // type system yet (visibility, specialization graph). Return empty
+        // slice until those are ready.
+        hir::ItemKind::AutoImplTrait { .. } => &[],
         _ => span_bug!(item.span, "associated_item_def_ids: not impl or trait"),
     }
 }
@@ -204,6 +208,8 @@ fn associated_types_for_impl_traits_in_trait_or_impl<'tcx>(
                 })
                 .collect()
         }
+        // AutoImplTrait doesn't have associated items with RPITITs.
+        ItemKind::AutoImplTrait { .. } => Default::default(),
         _ => {
             bug!(
                 "associated_types_for_impl_traits_in_trait_or_impl: {:?} should be Trait or Impl but is {:?}",

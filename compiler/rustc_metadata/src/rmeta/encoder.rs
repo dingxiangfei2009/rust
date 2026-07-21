@@ -1433,6 +1433,7 @@ impl<'a, 'tcx> EncodeContext<'a, 'tcx> {
                 continue;
             }
 
+
             if def_kind == DefKind::Field
                 && let hir::Node::Field(field) = tcx.hir_node_by_def_id(local_id)
                 && let Some(anon) = field.default
@@ -2191,6 +2192,8 @@ impl<'a, 'tcx> EncodeContext<'a, 'tcx> {
             let DefKind::Impl { of_trait } = tcx.def_kind(id.owner_id) else {
                 continue;
             };
+            let is_auto_impl_trait =
+                matches!(tcx.hir_item(id).kind, hir::ItemKind::AutoImplTrait { .. });
             let def_id = id.owner_id.to_def_id();
 
             if of_trait {
@@ -2216,18 +2219,22 @@ impl<'a, 'tcx> EncodeContext<'a, 'tcx> {
                     .or_default()
                     .push((id.owner_id.def_id.local_def_index, simplified_self_ty));
 
-                let trait_def = tcx.trait_def(trait_ref.def_id);
-                if let Ok(mut an) = trait_def.ancestors(tcx, def_id)
-                    && let Some(specialization_graph::Node::Impl(parent)) = an.nth(1)
-                {
-                    self.tables.impl_parent.set_some(def_id.index, parent.into());
-                }
+                // AutoImplTrait items don't participate in specialization
+                // or CoerceUnsized.
+                if !is_auto_impl_trait {
+                    let trait_def = tcx.trait_def(trait_ref.def_id);
+                    if let Ok(mut an) = trait_def.ancestors(tcx, def_id)
+                        && let Some(specialization_graph::Node::Impl(parent)) = an.nth(1)
+                    {
+                        self.tables.impl_parent.set_some(def_id.index, parent.into());
+                    }
 
-                // if this is an impl of `CoerceUnsized`, create its
-                // "unsized info", else just store None
-                if tcx.is_lang_item(trait_ref.def_id, LangItem::CoerceUnsized) {
-                    let coerce_unsized_info = tcx.coerce_unsized_info(def_id).unwrap();
-                    record!(self.tables.coerce_unsized_info[def_id] <- coerce_unsized_info);
+                    // if this is an impl of `CoerceUnsized`, create its
+                    // "unsized info", else just store None
+                    if tcx.is_lang_item(trait_ref.def_id, LangItem::CoerceUnsized) {
+                        let coerce_unsized_info = tcx.coerce_unsized_info(def_id).unwrap();
+                        record!(self.tables.coerce_unsized_info[def_id] <- coerce_unsized_info);
+                    }
                 }
             }
         }

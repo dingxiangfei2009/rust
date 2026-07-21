@@ -1401,6 +1401,20 @@ fn impl_is_fully_generic_for_reflection(tcx: TyCtxt<'_>, def_id: LocalDefId) -> 
 fn impl_trait_header(tcx: TyCtxt<'_>, def_id: LocalDefId) -> ty::ImplTraitHeader<'_> {
     let icx = ItemCtxt::new(tcx, def_id);
     let item = tcx.hir_expect_item(def_id);
+
+    // Handle AutoImplTrait items specially — they don't have the full Impl structure.
+    if let hir::ItemKind::AutoImplTrait { safety, ref trait_ref, .. } = item.kind {
+        let selfty = tcx.type_of(def_id).instantiate_identity().skip_norm_wip();
+        let lowered_trait_ref = icx.lowerer().lower_impl_trait_ref(trait_ref, selfty);
+        return ty::ImplTraitHeader {
+            trait_ref: ty::EarlyBinder::bind(tcx, lowered_trait_ref),
+            safety,
+            polarity: ty::ImplPolarity::Positive,
+            constness: hir::Constness::NotConst,
+            is_auto_impl: true,
+        };
+    }
+
     let impl_ = item.expect_impl();
     let of_trait = impl_
         .of_trait
@@ -1417,6 +1431,7 @@ fn impl_trait_header(tcx: TyCtxt<'_>, def_id: LocalDefId) -> ty::ImplTraitHeader
         safety: of_trait.safety,
         polarity: polarity_of_impl(tcx, of_trait, is_rustc_reservation),
         constness: impl_.constness,
+        is_auto_impl: false,
     }
 }
 

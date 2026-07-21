@@ -833,6 +833,10 @@ pub(crate) fn check_item_type(tcx: TyCtxt<'_>, def_id: LocalDefId) -> Result<(),
             }
         }
         DefKind::Impl { of_trait } => {
+            let is_auto_impl_trait = matches!(
+                tcx.hir_expect_item(def_id).kind,
+                hir::ItemKind::AutoImplTrait { .. }
+            );
             tcx.ensure_ok().generics_of(def_id);
             tcx.ensure_ok().type_of(def_id);
             tcx.ensure_ok().predicates_of(def_id);
@@ -842,10 +846,12 @@ pub(crate) fn check_item_type(tcx: TyCtxt<'_>, def_id: LocalDefId) -> Result<(),
                 res = res
                     .and(tcx.ensure_result().coherent_trait(impl_trait_header.trait_ref.def_id()));
 
-                if res.is_ok() {
+                if res.is_ok() && !is_auto_impl_trait {
                     // Checking this only makes sense if the all trait impls satisfy basic
                     // requirements (see `coherent_trait` query), otherwise
                     // we run into infinite recursions a lot.
+                    // Skip for AutoImplTrait: items don't participate in the
+                    // specialization graph yet.
                     check_impl_items_against_trait(tcx, def_id, impl_trait_header);
                 }
             }

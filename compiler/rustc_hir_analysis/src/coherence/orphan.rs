@@ -23,6 +23,13 @@ pub(crate) fn orphan_check_impl(
     tcx: TyCtxt<'_>,
     impl_def_id: LocalDefId,
 ) -> Result<(), ErrorGuaranteed> {
+    // AutoImplTrait items (`auto impl Super for trait Sub`) have a param Self type
+    // which would fail the orphan check. They are always defined in the same crate
+    // as the subtrait, so orphan rules are satisfied by construction.
+    if tcx.impl_trait_header(impl_def_id).is_auto_impl {
+        return Ok(());
+    }
+
     let trait_ref = tcx.impl_trait_ref(impl_def_id).instantiate_identity().skip_norm_wip();
     trait_ref.error_reported()?;
 

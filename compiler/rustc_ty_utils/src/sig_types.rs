@@ -101,29 +101,36 @@ pub fn walk_types<'tcx, V: SpannedTypeVisitor<'tcx>>(
             }
         }
         DefKind::Impl { of_trait } => {
-            if of_trait {
-                let span = tcx
-                    .hir_node_by_def_id(item)
-                    .expect_item()
-                    .expect_impl()
-                    .of_trait
-                    .unwrap()
-                    .trait_ref
-                    .path
-                    .span;
-                let args =
-                    &tcx.impl_trait_ref(item).instantiate_identity().skip_norm_wip().args[1..];
-                try_visit!(visitor.visit(span, args));
-            }
-            let span = match tcx.hir_node_by_def_id(item).ty() {
-                Some(ty) => ty.span,
-                _ => tcx.def_span(item),
-            };
-            try_visit!(
-                visitor.visit(span, tcx.type_of(item).instantiate_identity().skip_norm_wip())
-            );
-            for (pred, span) in tcx.explicit_predicates_of(item).instantiate_identity(tcx) {
-                try_visit!(visitor.visit(span, pred.skip_norm_wip()));
+            let hir_item = tcx.hir_node_by_def_id(item).expect_item();
+            // AutoImplTrait items use DefKind::Impl but don't have the full Impl structure.
+            if matches!(hir_item.kind, rustc_hir::ItemKind::AutoImplTrait { .. }) {
+                // Just visit predicates for AutoImplTrait.
+                for (pred, span) in tcx.explicit_predicates_of(item).instantiate_identity(tcx) {
+                    try_visit!(visitor.visit(span, pred.skip_norm_wip()));
+                }
+            } else {
+                if of_trait {
+                    let span = hir_item
+                        .expect_impl()
+                        .of_trait
+                        .unwrap()
+                        .trait_ref
+                        .path
+                        .span;
+                    let args =
+                        &tcx.impl_trait_ref(item).instantiate_identity().skip_norm_wip().args[1..];
+                    try_visit!(visitor.visit(span, args));
+                }
+                let span = match tcx.hir_node_by_def_id(item).ty() {
+                    Some(ty) => ty.span,
+                    _ => tcx.def_span(item),
+                };
+                try_visit!(
+                    visitor.visit(span, tcx.type_of(item).instantiate_identity().skip_norm_wip())
+                );
+                for (pred, span) in tcx.explicit_predicates_of(item).instantiate_identity(tcx) {
+                    try_visit!(visitor.visit(span, pred.skip_norm_wip()));
+                }
             }
         }
         DefKind::TraitAlias | DefKind::Trait => {

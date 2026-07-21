@@ -326,6 +326,8 @@ pub(super) fn check_item<'tcx>(
             res
         }
         hir::ItemKind::Fn { sig, .. } => check_item_fn(tcx, def_id, sig.decl),
+        // AutoImplTrait items don't have full wfcheck support yet.
+        hir::ItemKind::AutoImplTrait { .. } => Ok(()),
         // Note: do not add new entries to this match. Instead add all new logic in `check_item_type`
         _ => span_bug!(item.span, "should have been handled by the type based wf check: {item:?}"),
     }
