@@ -3139,18 +3139,28 @@ impl<'a, 'ast, 'ra, 'tcx> LateResolutionVisitor<'a, 'ast, 'ra, 'tcx> {
                         let original_trait_ref =
                             replace(&mut this.current_trait_ref, new_val);
 
-                        // Resolve items in the body.
-                        let mut seen_trait_items = Default::default();
-                        for assoc_item in &auto_impl.items {
-                            with_owner(this, assoc_item.id, |this| {
-                                this.resolve_impl_item(
-                                    &**assoc_item,
-                                    &mut seen_trait_items,
-                                    trait_id,
-                                    true,
-                                );
+                        // Set up Self type resolution, mirroring resolve_implementation.
+                        let item_def_id = this.r.current_owner.def_id.to_def_id();
+                        let self_res = Res::SelfTyAlias {
+                            alias_to: item_def_id,
+                            is_trait_impl: true,
+                        };
+                        this.with_self_rib(self_res, |this| {
+                            this.with_self_rib_ns(ValueNS, Res::SelfCtor(item_def_id), |this| {
+                                // Resolve items in the body.
+                                let mut seen_trait_items = Default::default();
+                                for assoc_item in &auto_impl.items {
+                                    with_owner(this, assoc_item.id, |this| {
+                                        this.resolve_impl_item(
+                                            &**assoc_item,
+                                            &mut seen_trait_items,
+                                            trait_id,
+                                            true,
+                                        );
+                                    });
+                                }
                             });
-                        }
+                        });
 
                         this.current_trait_ref = original_trait_ref;
                     },

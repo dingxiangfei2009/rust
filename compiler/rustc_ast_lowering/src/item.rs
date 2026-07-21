@@ -601,16 +601,19 @@ impl<'hir> LoweringContext<'_, 'hir> {
                     .and_then(|r| r.expect_full_res().opt_def_id())
                     .unwrap_or_else(|| DefId::local(rustc_span::def_id::CRATE_DEF_INDEX));
                 let for_trait_ident = self.lower_ident(auto_impl_trait.for_trait);
-                // Items are not fully integrated into the type system yet
-                // (visibility, specialization graph). Pass empty slice until
-                // those are ready.
+                let new_impl_items = self.arena.alloc_from_iter(
+                    auto_impl_trait
+                        .items
+                        .iter()
+                        .map(|item| self.lower_impl_item_ref(item)),
+                );
                 hir::ItemKind::AutoImplTrait {
                     safety,
                     generics,
                     trait_ref,
                     for_trait_ident,
                     for_trait_def_id,
-                    items: &[],
+                    items: new_impl_items,
                 }
             }
         }

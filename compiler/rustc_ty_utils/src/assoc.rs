@@ -47,10 +47,9 @@ fn associated_item_def_ids(tcx: TyCtxt<'_>, def_id: LocalDefId) -> &[DefId] {
                     .chain(rpitit_items.get(&item_def_id).into_flat_iter().copied())
             }))
         }
-        // AutoImplTrait items are in HIR but not fully integrated into the
-        // type system yet (visibility, specialization graph). Return empty
-        // slice until those are ready.
-        hir::ItemKind::AutoImplTrait { .. } => &[],
+        hir::ItemKind::AutoImplTrait { items, .. } => {
+            tcx.arena.alloc_from_iter(items.iter().map(|item| item.owner_id.to_def_id()))
+        }
         _ => span_bug!(item.span, "associated_item_def_ids: not impl or trait"),
     }
 }

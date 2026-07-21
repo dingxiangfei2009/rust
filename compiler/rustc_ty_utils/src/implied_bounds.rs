@@ -170,20 +170,44 @@ fn fn_sig_spans(tcx: TyCtxt<'_>, def_id: LocalDefId) -> impl Iterator<Item = Spa
     }
 }
 
-fn impl_spans(tcx: TyCtxt<'_>, def_id: LocalDefId) -> impl Iterator<Item = Span> {
+fn impl_spans(tcx: TyCtxt<'_>, def_id: LocalDefId) -> Box<dyn Iterator<Item = Span> + '_> {
     let item = tcx.hir_expect_item(def_id);
-    if let hir::ItemKind::Impl(impl_) = item.kind {
-        let trait_args = impl_
-            .of_trait
-            .map(|of_trait| of_trait.trait_ref.path.segments.last().unwrap().args().args)
-            .into_flat_iter()
-            .map(|arg| arg.span());
-        let dummy_spans_for_default_args = impl_
-            .of_trait
-            .map(|of_trait| iter::repeat(of_trait.trait_ref.path.span))
-            .into_flat_iter();
-        iter::once(impl_.self_ty.span).chain(trait_args).chain(dummy_spans_for_default_args)
-    } else {
-        bug!("unexpected item for impl {def_id:?}: {item:?}")
+    match item.kind {
+        hir::ItemKind::Impl(impl_) => {
+            let trait_args = impl_
+                .of_trait
+                .map(|of_trait| of_trait.trait_ref.path.segments.last().unwrap().args().args)
+                .into_flat_iter()
+                .map(|arg| arg.span());
+            let dummy_spans_for_default_args = impl_
+                .of_trait
+                .map(|of_trait| iter::repeat(of_trait.trait_ref.path.span))
+                .into_flat_iter();
+            Box::new(
+                iter::once(impl_.self_ty.span)
+                    .chain(trait_args)
+                    .chain(dummy_spans_for_default_args),
+            )
+        }
+        hir::ItemKind::AutoImplTrait { ref trait_ref, .. } => {
+            let trait_args = trait_ref
+                .path
+                .segments
+                .last()
+                .unwrap()
+                .args()
+                .args
+                .iter()
+                .map(|arg| arg.span());
+            let dummy_spans_for_default_args = iter::repeat(trait_ref.path.span);
+            // Use the trait ref span as the "self type" span since AutoImplTrait
+            // has no explicit self type.
+            Box::new(
+                iter::once(trait_ref.path.span)
+                    .chain(trait_args)
+                    .chain(dummy_spans_for_default_args),
+            )
+        }
+        _ => bug!("unexpected item for impl {def_id:?}: {item:?}"),
     }
 }
