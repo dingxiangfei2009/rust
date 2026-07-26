@@ -2893,6 +2893,26 @@ impl<'a, 'ast, 'ra, 'tcx> LateResolutionVisitor<'a, 'ast, 'ra, 'tcx> {
                         this.with_self_rib(Res::SelfTyParam { trait_: local_def_id }, |this| {
                             this.visit_generics(generics);
                             walk_list!(this, visit_param_bound, bounds, BoundKind::SuperTraits);
+
+                            // Collect supertrait DefIds for transparent supertrait
+                            // item resolution.
+                            if this.r.tcx.features().supertrait_auto_impl() {
+                                let mut supertraits = Vec::new();
+                                for bound in bounds {
+                                    if let ast::GenericBound::Trait(poly_trait_ref) = bound {
+                                        let path = &poly_trait_ref.trait_ref.path;
+                                        if let Some(partial_res) = this.r.partial_res_map.get(&path.segments.last().unwrap().id) {
+                                            if let Some(def_id) = partial_res.expect_full_res().opt_def_id() {
+                                                supertraits.push(def_id);
+                                            }
+                                        }
+                                    }
+                                }
+                                if !supertraits.is_empty() {
+                                    this.r.trait_supertraits.insert(local_def_id, supertraits);
+                                }
+                            }
+
                             this.resolve_trait_items(items);
                         });
                     },
@@ -3835,6 +3855,33 @@ impl<'a, 'ast, 'ra, 'tcx> LateResolutionVisitor<'a, 'ast, 'ra, 'tcx> {
         self.diag_metadata.current_impl_item = prev;
     }
 
+    /// Search for an item in the supertraits of the given trait.
+    /// This enables transparent supertrait item resolution: when `impl Sub for Foo`
+    /// provides an item that belongs to a supertrait `Super` of `Sub`, we accept it.
+    fn find_item_in_supertraits(
+        &mut self,
+        trait_def_id: DefId,
+        ident: Ident,
+        ns: Namespace,
+    ) -> Option<Decl<'ra>> {
+        // Use the resolver's own trait_supertraits map (populated during
+        // trait definition resolution) to avoid query cycles.
+        let supertrait_ids = self.r.trait_supertraits.get(&trait_def_id)?.clone();
+        for supertrait_def_id in &supertrait_ids {
+            if let Some(supertrait_module) = self.r.get_module(*supertrait_def_id) {
+                let mut st_ident = ident;
+                st_ident.span.normalize_to_macros_2_0_and_adjust(supertrait_module.expansion);
+                let key = BindingKey::new(IdentKey::new(st_ident), ns);
+                if let Some(decl) = self.r.resolution(supertrait_module, key)
+                    .and_then(|r| r.best_decl())
+                {
+                    return Some(decl);
+                }
+            }
+        }
+        None
+    }
+
     fn check_trait_item<F>(
         &mut self,
         id: NodeId,
@@ -3881,14 +3928,26 @@ impl<'a, 'ast, 'ra, 'tcx> LateResolutionVisitor<'a, 'ast, 'ra, 'tcx> {
                 );
                 Visibility::Public
             };
-            // HACK: because we don't want to track the `TyCtxtFeed` through the resolver to here
-            // in a hash-map, we instead conjure a `TyCtxtFeed` for any `DefId` here, but prevent
-            // it from being used generally.
             this.r.tcx.feed_visibility_for_trait_impl_item(this.r.current_owner.def_id, vis);
         };
 
-        let Some(decl) = decl else {
-            // We could not find the method: report an error.
+        let decl = if let Some(d) = decl {
+            d
+        } else if self.r.tcx.features().supertrait_auto_impl() {
+            // With supertrait_auto_impl, check if the item exists in a
+            // supertrait. This enables transparent trait splitting: items
+            // from a supertrait can be provided in a subtrait impl block.
+            if let Some(d) = self.find_item_in_supertraits(module.def_id(), ident, ns) {
+                d
+            } else {
+                let candidate = self.find_similarly_named_assoc_item(reported_ident.name, kind);
+                let path = &self.current_trait_ref.as_ref().unwrap().1.path;
+                let path_names = path_names_to_string(path);
+                self.report_error(span, err(reported_ident, path_names, candidate));
+                feed_visibility(self, module.def_id());
+                return;
+            }
+        } else {
             let candidate = self.find_similarly_named_assoc_item(reported_ident.name, kind);
             let path = &self.current_trait_ref.as_ref().unwrap().1.path;
             let path_names = path_names_to_string(path);

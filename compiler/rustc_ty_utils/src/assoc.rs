@@ -199,11 +199,19 @@ fn associated_types_for_impl_traits_in_trait_or_impl<'tcx>(
                     else {
                         return Some((did, vec![]));
                     };
-                    let iter = in_trait_def[&trait_item_def_id].iter().map(|&id| {
-                        associated_type_for_impl_trait_in_impl(tcx, id, item, disambiguator)
-                            .to_def_id()
-                    });
-                    Some((did, iter.collect()))
+                    // If the trait_item_def_id belongs to a supertrait (not
+                    // the impl's own trait), skip RPITIT synthesis — the item
+                    // is a transparent supertrait item that will be handled
+                    // separately.
+                    if let Some(rpitit_defs) = in_trait_def.get(&trait_item_def_id) {
+                        let iter = rpitit_defs.iter().map(|&id| {
+                            associated_type_for_impl_trait_in_impl(tcx, id, item, disambiguator)
+                                .to_def_id()
+                        });
+                        Some((did, iter.collect()))
+                    } else {
+                        Some((did, vec![]))
+                    }
                 })
                 .collect()
         }
