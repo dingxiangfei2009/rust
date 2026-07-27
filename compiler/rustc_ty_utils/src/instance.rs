@@ -273,6 +273,27 @@ fn resolve_associated_item<'tcx>(
                 tcx.ensure_result().compare_impl_item(leaf_def_item)?;
             }
 
+            // For auto impls, check if the subtrait impl has a transparent
+            // override for this item. If `impl Sub for Foo` provides `fn s()`
+            // belonging to supertrait `Super`, use the user's version.
+            if let Some(subtrait_def_id) = tcx.auto_impl_for_trait(effective_impl_def_id) {
+                let self_ty = rcvr_args.type_at(0);
+                for sub_impl_id in tcx.all_impls(subtrait_def_id) {
+                    let impl_self_ty = tcx.type_of(sub_impl_id).skip_binder();
+                    if impl_self_ty == self_ty {
+                        for &item_def_id in tcx.associated_item_def_ids(sub_impl_id) {
+                            let item = tcx.associated_item(item_def_id);
+                            if item.trait_item_def_id() == Some(trait_item_id) {
+                                // Found transparent override — use user's item directly.
+                                // The user's item is in a concrete impl with no generics.
+                                let override_args = tcx.mk_args(&[]);
+                                return Ok(Some(ty::Instance::new_raw(item_def_id, override_args)));
+                            }
+                        }
+                    }
+                }
+            }
+
             Some(ty::Instance::new_raw(leaf_def.item.def_id, args))
         }
         traits::ImplSource::Builtin(BuiltinImplSource::Object(_), _) => {
