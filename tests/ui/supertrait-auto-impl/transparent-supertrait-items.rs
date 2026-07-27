@@ -1,9 +1,8 @@
 // Test transparent supertrait item resolution:
 // items in `impl Sub for Foo` that belong to a supertrait `Super`
 // should be accepted without E0407.
-//
-// For now, this requires an `auto impl` to satisfy the supertrait bound.
-// The transparent item overrides the auto impl's default.
+// An `auto impl` provides the supertrait bound, and the transparent
+// item overrides the auto impl's default.
 
 //@ check-pass
 

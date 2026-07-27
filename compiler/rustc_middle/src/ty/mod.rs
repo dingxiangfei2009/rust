@@ -209,6 +209,11 @@ pub struct ResolverGlobalCtxt {
     // Information about delegations which is used when handling recursive delegations
     // and ensures easy access to delegation-only `LocalDefId`s.
     pub delegation_infos: FxIndexMap<LocalDefId, DelegationInfo>,
+
+    /// Maps a synthetic supertrait impl's `DefId` to the `DefId`s of the
+    /// original items from the parent impl. Used by `associated_item_def_ids`
+    /// to return the correct items for synthetic impls.
+    pub synthetic_impl_to_original_items: FxIndexMap<DefId, Vec<DefId>>,
 }
 
 #[derive(Debug)]
@@ -277,6 +282,35 @@ pub struct ResolverAstLowering<'tcx> {
     pub lint_buffer: Steal<LintBuffer>,
 
     pub disambiguators: LocalDefIdMap<Steal<PerParentDisambiguatorState>>,
+
+    /// Synthetic supertrait impls to generate during lowering.
+    /// Maps the original impl's `NodeId` to a list of synthetic impls
+    /// that should be generated for each supertrait.
+    pub synthetic_supertrait_impls: NodeMap<Vec<SyntheticSupertraitImpl>>,
+}
+
+/// Describes a synthetic `impl Super for Foo` to be generated during
+/// lowering from transparent supertrait items in `impl Sub for Foo`.
+#[derive(Debug)]
+pub struct SyntheticSupertraitImpl {
+    /// The `NodeId` allocated for the synthetic impl block.
+    pub impl_node_id: ast::NodeId,
+    /// The `DefId` of the supertrait being implemented.
+    pub supertrait_def_id: DefId,
+    /// Pairs mapping each original transparent item to its synthetic counterpart.
+    pub item_pairs: Vec<SyntheticItemPair>,
+}
+
+/// Maps an original transparent supertrait item to its synthetic copy.
+#[derive(Debug)]
+pub struct SyntheticItemPair {
+    /// `NodeId` of the original item in `impl Sub for Foo`.
+    pub original_node_id: ast::NodeId,
+    /// `NodeId` of the synthetic item in the generated `impl Super for Foo`.
+    pub synthetic_node_id: ast::NodeId,
+    /// A clone of the original AST item, stored before `index_ast` replaces it
+    /// with a MacCall dummy.
+    pub original_item: Box<ast::AssocItem>,
 }
 
 #[derive(Debug, StableHash)]

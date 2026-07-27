@@ -126,7 +126,9 @@ fn resolve_associated_item<'tcx>(
         Err(CodegenObligationError::Ambiguity | CodegenObligationError::Unimplemented) => {
             return Ok(None);
         }
-        Err(CodegenObligationError::UnconstrainedParam(guar)) => return Err(guar),
+        Err(CodegenObligationError::UnconstrainedParam(guar)) => {
+            return Err(guar);
+        }
     };
 
     // Now that we know which impl is being used, we can dispatch to
@@ -144,6 +146,7 @@ fn resolve_associated_item<'tcx>(
             // redirect to the auto impl so the normal resolution path works.
             // The delegation impl has no items of its own; its items come from
             // the auto impl, so we need to resolve through the auto impl.
+
             let effective_impl_def_id =
                 if let Some(local_id) = impl_data.impl_def_id.as_local()
                     && let hir::ItemKind::Impl(impl_) = &tcx.hir_expect_item(local_id).kind
@@ -164,7 +167,8 @@ fn resolve_associated_item<'tcx>(
             let trait_def_id = tcx.impl_trait_id(effective_impl_def_id);
             let trait_def = tcx.trait_def(trait_def_id);
             let leaf_def = trait_def
-                .ancestors(tcx, effective_impl_def_id)?
+                .ancestors(tcx, effective_impl_def_id)
+                ?
                 .leaf_def(tcx, trait_item_id)
                 .unwrap_or_else(|| {
                     bug!("{:?} not found in {:?}", trait_item_id, effective_impl_def_id);

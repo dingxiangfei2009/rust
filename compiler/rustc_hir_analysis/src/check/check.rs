@@ -1338,8 +1338,15 @@ fn check_impl_items_against_trait<'tcx>(
             // Check if there's already an explicit impl of the supertrait
             // for the same type — that would be a conflict.
             let self_ty = trait_ref.self_ty();
+            let resolutions = tcx.resolutions(());
             for &other_impl_id in tcx.local_trait_impls(supertrait_def_id) {
                 if other_impl_id != impl_id {
+                    // Skip synthetic supertrait impls — they're generated
+                    // from the same original impl and aren't conflicts.
+                    if resolutions.synthetic_impl_to_original_items
+                        .contains_key(&other_impl_id.to_def_id()) {
+                        continue;
+                    }
                     let other_self_ty = tcx.impl_trait_header(other_impl_id)
                         .trait_ref.instantiate_identity().skip_norm_wip().self_ty();
                     if other_self_ty == self_ty {

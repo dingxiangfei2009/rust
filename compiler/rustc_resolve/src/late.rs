@@ -29,7 +29,11 @@ use rustc_hir::def::{CtorKind, DefKind, LifetimeRes, NonMacroAttrKind, PartialRe
 use rustc_hir::def_id::{CRATE_DEF_ID, DefId, LOCAL_CRATE, LocalDefId};
 use rustc_hir::{MissingLifetimeKind, PrimTy};
 use rustc_middle::middle::resolve_bound_vars::Set1;
-use rustc_middle::ty::{AssocTag, DelegationInfo, Visibility};
+use rustc_middle::ty::{
+    AssocTag, DelegationInfo, PerOwnerResolverData, SyntheticItemPair, SyntheticSupertraitImpl,
+    Visibility,
+};
+use rustc_span::hygiene::ExpnId;
 use rustc_middle::{bug, span_bug};
 use rustc_session::config::{CrateType, ResolveDocLinks};
 use rustc_session::diagnostics::feature_err;
@@ -3692,6 +3696,14 @@ impl<'a, 'ast, 'ra, 'tcx> LateResolutionVisitor<'a, 'ast, 'ra, 'tcx> {
                                                         this.resolve_impl_item(&**item, &mut seen_trait_items, trait_id, of_trait.is_some());
                                                     })
                                                 }
+
+                                                // Detect transparent supertrait items and create
+                                                // synthetic impl entries for lowering.
+                                                if let Some(trait_id) = trait_id {
+                                                    this.detect_transparent_supertrait_items(
+                                                        item_id, trait_id, impl_items,
+                                                    );
+                                                }
                                             });
                                         });
                                     });
@@ -3880,15 +3892,22 @@ impl<'a, 'ast, 'ra, 'tcx> LateResolutionVisitor<'a, 'ast, 'ra, 'tcx> {
     /// Search for an item in the supertraits of the given trait.
     /// This enables transparent supertrait item resolution: when `impl Sub for Foo`
     /// provides an item that belongs to a supertrait `Super` of `Sub`, we accept it.
+    ///
+    /// Returns `Ok(decl)` if exactly one supertrait defines the item.
+    /// Returns `Err(matches)` if multiple supertraits define the same item (ambiguity).
+    /// Returns `Ok` with `None` mapped outside if no supertrait has the item.
     fn find_item_in_supertraits(
         &mut self,
         trait_def_id: DefId,
         ident: Ident,
         ns: Namespace,
-    ) -> Option<Decl<'ra>> {
+    ) -> Result<Option<Decl<'ra>>, Vec<(DefId, Decl<'ra>)>> {
         // Use the resolver's own trait_supertraits map (populated during
         // trait definition resolution) to avoid query cycles.
-        let supertrait_ids = self.r.trait_supertraits.get(&trait_def_id)?.clone();
+        let Some(supertrait_ids) = self.r.trait_supertraits.get(&trait_def_id).cloned() else {
+            return Ok(None);
+        };
+        let mut matches: Vec<(DefId, Decl<'ra>)> = Vec::new();
         for supertrait_def_id in &supertrait_ids {
             if let Some(supertrait_module) = self.r.get_module(*supertrait_def_id) {
                 let mut st_ident = ident;
@@ -3897,11 +3916,146 @@ impl<'a, 'ast, 'ra, 'tcx> LateResolutionVisitor<'a, 'ast, 'ra, 'tcx> {
                 if let Some(decl) = self.r.resolution(supertrait_module, key)
                     .and_then(|r| r.best_decl())
                 {
-                    return Some(decl);
+                    matches.push((*supertrait_def_id, decl));
                 }
             }
         }
-        None
+        match matches.len() {
+            0 => Ok(None),
+            1 => Ok(Some(matches.into_iter().next().unwrap().1)),
+            _ => Err(matches),
+        }
+    }
+
+    /// After resolving all items in `impl Sub for Foo`, detect which items
+    /// are transparent supertrait items (their `trait_item_def_id` belongs to
+    /// a supertrait of `Sub`). For each supertrait with transparent items,
+    /// create a synthetic impl entry for lowering.
+    fn detect_transparent_supertrait_items(
+        &mut self,
+        impl_node_id: NodeId,
+        trait_def_id: DefId,
+        impl_items: &[Box<AssocItem>],
+    ) {
+        // Group transparent items by their supertrait.
+        let mut supertrait_items: FxIndexMap<DefId, Vec<NodeId>> = Default::default();
+
+        for item in impl_items {
+            // Check the partial resolution to find the trait_item_def_id.
+            if let Some(partial_res) = self.r.partial_res_map.get(&item.id) {
+                if let Some(trait_item_def_id) = partial_res.expect_full_res().opt_def_id() {
+                    // Find which trait owns this item.
+                    let item_trait_id = self.r.tcx.parent(trait_item_def_id);
+                    if item_trait_id != trait_def_id {
+                        // This item belongs to a supertrait, not the impl's own trait.
+                        supertrait_items
+                            .entry(item_trait_id)
+                            .or_default()
+                            .push(item.id);
+                    }
+                }
+            }
+        }
+
+        if supertrait_items.is_empty() {
+            return;
+        }
+
+        // For each supertrait with transparent items, create a synthetic impl.
+        // Use the resolver's own data to avoid query cycles.
+        // The synthetic impl is created during lowering of the original impl,
+        // so its parent must be the original impl for `lower_to_hir` to find it.
+        let impl_def_id = self.r.current_owner.def_id;
+        let parent_def = impl_def_id;
+        let span = self.r.tcx.untracked().source_span.get(impl_def_id)
+            .unwrap_or(DUMMY_SP);
+
+        let mut synthetic_entries = Vec::new();
+
+        for (supertrait_def_id, original_item_node_ids) in supertrait_items {
+            // Allocate a fresh NodeId for the synthetic impl.
+            let synthetic_impl_node_id = self.r.next_node_id();
+
+            // Create a DefId for the synthetic impl.
+            let feed = self.r.create_def(
+                parent_def,
+                synthetic_impl_node_id,
+                None, // no name for impl blocks
+                DefKind::Impl { of_trait: true },
+                ExpnId::root(),
+                span.with_parent(None),
+                true, // is_owner
+            );
+            let synthetic_impl_def_id = feed.key();
+
+            // Create a PerOwnerResolverData for the synthetic impl.
+            let tables = PerOwnerResolverData::new(synthetic_impl_node_id, synthetic_impl_def_id);
+            self.r.owners.insert(synthetic_impl_node_id, tables);
+
+            // Create DefIds for each synthetic item (child of synthetic impl).
+            let mut item_pairs = Vec::new();
+            for orig_item_id in original_item_node_ids {
+                // Find the original item's name and DefKind.
+                let orig_item = impl_items.iter().find(|i| i.id == orig_item_id).unwrap();
+                let (ident, def_kind) = match &orig_item.kind {
+                    AssocItemKind::Fn(Fn { ident, .. }) => (*ident, DefKind::AssocFn),
+                    AssocItemKind::Const(ConstItem { ident, kind, .. }) => (
+                        *ident,
+                        DefKind::AssocConst {
+                            is_type_const: *kind == ConstItemKind::TypeConst,
+                        },
+                    ),
+                    AssocItemKind::Type(TyAlias { ident, .. }) => (*ident, DefKind::AssocTy),
+                    _ => continue,
+                };
+
+                let synthetic_item_node_id = self.r.next_node_id();
+                let item_feed = self.r.create_def(
+                    synthetic_impl_def_id,
+                    synthetic_item_node_id,
+                    Some(ident.name),
+                    def_kind,
+                    ExpnId::root(),
+                    ident.span.with_parent(None),
+                    true, // is_owner
+                );
+                let synthetic_item_def_id = item_feed.key();
+
+                // Create PerOwnerResolverData for the synthetic item.
+                let item_tables = PerOwnerResolverData::new(
+                    synthetic_item_node_id,
+                    synthetic_item_def_id,
+                );
+                self.r.owners.insert(synthetic_item_node_id, item_tables);
+
+                item_pairs.push(SyntheticItemPair {
+                    original_node_id: orig_item_id,
+                    synthetic_node_id: synthetic_item_node_id,
+                    original_item: Box::new((**orig_item).clone()),
+                });
+            }
+
+            // Register the synthetic impl in trait_impls for coherence.
+            self.r.trait_impls
+                .entry(supertrait_def_id)
+                .or_default()
+                .push(synthetic_impl_def_id);
+
+            // Store mapping from synthetic impl to original items' DefIds.
+            let original_item_def_ids: Vec<_> = item_pairs.iter()
+                .map(|pair| self.r.owners[&pair.original_node_id].def_id.to_def_id())
+                .collect();
+            self.r.synthetic_impl_to_original_items
+                .insert(synthetic_impl_def_id.to_def_id(), original_item_def_ids);
+
+            synthetic_entries.push(SyntheticSupertraitImpl {
+                impl_node_id: synthetic_impl_node_id,
+                supertrait_def_id,
+                item_pairs,
+            });
+        }
+
+        self.r.synthetic_supertrait_impls.insert(impl_node_id, synthetic_entries);
     }
 
     fn check_trait_item<F>(
@@ -3959,15 +4113,39 @@ impl<'a, 'ast, 'ra, 'tcx> LateResolutionVisitor<'a, 'ast, 'ra, 'tcx> {
             // With supertrait_auto_impl, check if the item exists in a
             // supertrait. This enables transparent trait splitting: items
             // from a supertrait can be provided in a subtrait impl block.
-            if let Some(d) = self.find_item_in_supertraits(module.def_id(), ident, ns) {
-                d
-            } else {
-                let candidate = self.find_similarly_named_assoc_item(reported_ident.name, kind);
-                let path = &self.current_trait_ref.as_ref().unwrap().1.path;
-                let path_names = path_names_to_string(path);
-                self.report_error(span, err(reported_ident, path_names, candidate));
-                feed_visibility(self, module.def_id());
-                return;
+            match self.find_item_in_supertraits(module.def_id(), ident, ns) {
+                Ok(Some(d)) => d,
+                Err(ambiguous_matches) => {
+                    let trait_names: Vec<String> = ambiguous_matches
+                        .iter()
+                        .map(|(def_id, _)| self.r.tcx.item_name(*def_id).to_string())
+                        .collect();
+                    let trait_spans: Vec<Span> = ambiguous_matches
+                        .iter()
+                        .filter_map(|(_, decl)| {
+                            let sp = decl.span;
+                            if sp.is_dummy() { None } else { Some(sp) }
+                        })
+                        .collect();
+                    self.report_error(
+                        span,
+                        ResolutionError::SupertraitItemAmbiguity {
+                            item_name: ident,
+                            trait_names,
+                            trait_spans,
+                        },
+                    );
+                    feed_visibility(self, module.def_id());
+                    return;
+                }
+                Ok(None) => {
+                    let candidate = self.find_similarly_named_assoc_item(reported_ident.name, kind);
+                    let path = &self.current_trait_ref.as_ref().unwrap().1.path;
+                    let path_names = path_names_to_string(path);
+                    self.report_error(span, err(reported_ident, path_names, candidate));
+                    feed_visibility(self, module.def_id());
+                    return;
+                }
             }
         } else {
             let candidate = self.find_similarly_named_assoc_item(reported_ident.name, kind);

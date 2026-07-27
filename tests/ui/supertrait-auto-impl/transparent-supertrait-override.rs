@@ -5,6 +5,7 @@
 //@ run-pass
 
 #![feature(supertrait_auto_impl)]
+#![allow(dead_code)]
 
 trait Super {
     fn super_method(&self) -> i32;
@@ -26,7 +27,7 @@ impl Sub for Foo {
 
 struct Bar;
 impl Sub for Bar {
-    // No override — uses auto impl's default (0)
+    // No override -- uses auto impl's default (0)
     fn sub_method(&self) -> i32 { 2 }
 }
 
@@ -36,6 +37,6 @@ fn main() {
     assert_eq!(foo.sub_method(), 1);
 
     let bar = Bar;
-    assert_eq!(bar.super_method(), 0);   // auto impl default
+    assert_eq!(bar.super_method(), 0);   // default from auto impl
     assert_eq!(bar.sub_method(), 2);
 }

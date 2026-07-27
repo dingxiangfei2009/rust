@@ -10,7 +10,7 @@ use rustc_hir::{
 };
 use rustc_middle::span_bug;
 use rustc_middle::ty::data_structures::IndexMap;
-use rustc_middle::ty::{ResolverAstLowering, TyCtxt};
+use rustc_middle::ty::{ResolverAstLowering, SyntheticSupertraitImpl, TyCtxt};
 use rustc_span::def_id::{DefId, LocalDefId};
 use rustc_span::edit_distance::find_best_match_for_name;
 use rustc_span::{DUMMY_SP, DesugaringKind, Ident, Span, Symbol, kw, sym};
@@ -477,9 +477,21 @@ impl<'hir> LoweringContext<'_, 'hir> {
                         (of_trait, lowered_ty)
                     });
 
-                let new_impl_items = self
-                    .arena
-                    .alloc_from_iter(impl_items.iter().map(|item| self.lower_impl_item_ref(item)));
+                // Check for synthetic supertrait impls to generate.
+                let synthetic_impls = self.resolver
+                    .synthetic_supertrait_impls
+                    .get(&id);
+
+                
+
+                // Keep all items in the original impl (including transparent
+                // supertrait items). The transparent items are also returned
+                // by associated_item_def_ids for the synthetic supertrait impl.
+                let new_impl_items = self.arena.alloc_from_iter(
+                    impl_items
+                        .iter()
+                        .map(|item| self.lower_impl_item_ref(item)),
+                );
 
                 let constness = self.lower_constness(attrs, *constness);
 
@@ -491,6 +503,16 @@ impl<'hir> LoweringContext<'_, 'hir> {
                             .and_then(|r| r.expect_full_res().opt_def_id())
                     })
                 });
+
+                // Generate synthetic HIR impls for transparent supertrait items.
+                if let Some(synthetic_entries) = synthetic_impls {
+                    for entry in synthetic_entries {
+                        self.generate_synthetic_supertrait_impl(
+                            entry,
+                            ty,
+                        );
+                    }
+                }
 
                 hir::ItemKind::Impl(hir::Impl {
                     generics,
@@ -2124,4 +2146,87 @@ impl<'hir> LoweringContext<'_, 'hir> {
         });
         hir::WherePredicate { hir_id, span, kind }
     }
+
+    /// Generate a synthetic `impl Super for Foo` HIR item from transparent
+    /// supertrait items that were provided in `impl Sub for Foo`.
+    fn generate_synthetic_supertrait_impl(
+        &mut self,
+        entry: &SyntheticSupertraitImpl,
+        ast_self_ty: &ast::Ty,
+    ) {
+        let owner_id = self.owner_id(entry.impl_node_id);
+        let supertrait_def_id = entry.supertrait_def_id;
+
+        self.with_hir_id_owner(entry.impl_node_id, |this| {
+            let span = this.lower_span(ast_self_ty.span);
+
+            // The synthetic impl has no items in the HIR. Instead,
+            // associated_item_def_ids returns the original items' DefIds
+            // from the original impl, which have proper bodies/signatures.
+            let synthetic_item_ids: Vec<hir::ImplItemId> = Vec::new();
+
+            // Re-lower the self type within this synthetic impl's owner context.
+            let self_ty = this.lower_ty_alloc(
+                ast_self_ty,
+                ImplTraitContext::Disallowed(ImplTraitPosition::ImplSelf),
+            );
+
+            // Create fresh empty generics.
+            let generics = this.arena.alloc(hir::Generics {
+                params: &[],
+                predicates: &[],
+                has_where_clause_predicates: false,
+                where_clause_span: span,
+                span,
+            });
+
+            // Create a TraitRef pointing to the supertrait.
+            let hir_ref_id = this.next_id();
+            let path = this.arena.alloc(hir::Path {
+                span,
+                res: hir::def::Res::Def(DefKind::Trait, supertrait_def_id),
+                segments: this.arena.alloc_from_iter([hir::PathSegment {
+                    ident: Ident::new(
+                        this.tcx.item_name(supertrait_def_id),
+                        span,
+                    ),
+                    hir_id: this.next_id(),
+                    res: hir::def::Res::Def(DefKind::Trait, supertrait_def_id),
+                    args: None,
+                    infer_args: false,
+                    delegation_child_segment: false,
+                }]),
+            });
+            let trait_ref = hir::TraitRef { path, hir_ref_id };
+
+            let trait_impl_header = this.arena.alloc(hir::TraitImplHeader {
+                safety: hir::Safety::Safe,
+                polarity: hir::ImplPolarity::Positive,
+                defaultness: hir::Defaultness::Final,
+                defaultness_span: None,
+                trait_ref,
+            });
+
+            let items = this.arena.alloc_from_iter(synthetic_item_ids);
+
+            let impl_data = hir::Impl {
+                generics,
+                of_trait: Some(trait_impl_header),
+                self_ty,
+                items,
+                constness: hir::Constness::NotConst,
+                delegation_subtrait: None,
+            };
+
+            let item = hir::Item {
+                owner_id,
+                kind: hir::ItemKind::Impl(impl_data),
+                vis_span: span,
+                span,
+                eii: false,
+            };
+            hir::OwnerNode::Item(this.arena.alloc(item))
+        });
+    }
+
 }

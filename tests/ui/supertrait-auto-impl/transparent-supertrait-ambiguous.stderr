@@ -1,0 +1,16 @@
+error: item `foo` is ambiguous because it is defined in multiple supertraits: `Super1`, `Super2`
+  --> $DIR/transparent-supertrait-ambiguous.rs:29:5
+   |
+LL |     fn foo(&self) -> i32;
+   |     --------------------- item `foo` defined in `Super1`
+...
+LL |     fn foo(&self) -> i32;
+   |     --------------------- item `foo` defined in `Super2`
+...
+LL |     fn foo(&self) -> i32 { 42 }
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: use a separate `impl` block for each supertrait to disambiguate
+
+error: aborting due to 1 previous error
+

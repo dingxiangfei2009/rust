@@ -43,6 +43,14 @@ fn associated_item_def_ids(tcx: TyCtxt<'_>, def_id: LocalDefId) -> &[DefId] {
                     return auto_impl_items;
                 }
             }
+            // For synthetic supertrait impls, return the original items' DefIds
+            // from the parent impl. The synthetic impl has no items in the HIR.
+            if impl_.items.is_empty() {
+                let resolutions = tcx.resolutions(());
+                if let Some(original_items) = resolutions.synthetic_impl_to_original_items.get(&def_id.to_def_id()) {
+                    return tcx.arena.alloc_from_iter(original_items.iter().copied());
+                }
+            }
             // We collect RPITITs for each trait method's return type, on the impl side too and
             // create a corresponding associated item using
             // associated_types_for_impl_traits_in_trait_or_impl query.

@@ -1381,6 +1381,26 @@ impl<'ra, 'tcx> Resolver<'ra, 'tcx> {
             ResolutionError::BindingInNeverPattern => {
                 self.dcx().create_err(diagnostics::BindingInNeverPattern { span })
             }
+            ResolutionError::SupertraitItemAmbiguity {
+                item_name,
+                trait_names,
+                trait_spans,
+            } => {
+                let traits_list = trait_names.join("`, `");
+                let mut err = self.dcx().struct_span_err(
+                    span,
+                    format!(
+                        "item `{item_name}` is ambiguous because it is defined in multiple supertraits: `{traits_list}`"
+                    ),
+                );
+                for (trait_span, trait_name) in trait_spans.iter().zip(trait_names.iter()) {
+                    err.span_label(*trait_span, format!("item `{item_name}` defined in `{trait_name}`"));
+                }
+                err.help(format!(
+                    "use a separate `impl` block for each supertrait to disambiguate"
+                ));
+                err
+            }
         }
     }
 
