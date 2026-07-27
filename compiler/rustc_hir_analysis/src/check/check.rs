@@ -1331,6 +1331,30 @@ fn check_impl_items_against_trait<'tcx>(
             Err(ErrorGuaranteed { .. }) => continue,
         };
 
+        // Detect transparent supertrait items — items whose trait_item_def_id
+        // belongs to a supertrait, not the impl's own trait.
+        if ty_trait_item.container_id(tcx) != trait_ref.def_id {
+            let supertrait_def_id = ty_trait_item.container_id(tcx);
+            // Check if there's already an explicit impl of the supertrait
+            // for the same type — that would be a conflict.
+            let self_ty = trait_ref.self_ty();
+            for &other_impl_id in tcx.local_trait_impls(supertrait_def_id) {
+                if other_impl_id != impl_id {
+                    let other_self_ty = tcx.impl_trait_header(other_impl_id)
+                        .trait_ref.instantiate_identity().skip_norm_wip().self_ty();
+                    if other_self_ty == self_ty {
+                        let span = tcx.def_span(impl_item);
+                        tcx.dcx().emit_err(crate::diagnostics::TransparentSupertrait {
+                            span,
+                            supertrait: tcx.def_path_str(supertrait_def_id),
+                            self_ty: self_ty.to_string(),
+                        });
+                    }
+                }
+            }
+            continue;
+        }
+
         let res = tcx.ensure_result().compare_impl_item(impl_item.expect_local());
         if res.is_ok() {
             match ty_impl_item.kind {

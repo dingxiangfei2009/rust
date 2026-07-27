@@ -1,0 +1,9 @@
+error[E0119]: supertrait item `Super` conflicts with explicit impl for `Foo`
+  --> $DIR/transparent-supertrait-conflict.rs:19:5
+   |
+LL |     fn super_method(&self) -> i32 { 2 }
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: aborting due to 1 previous error
+
+For more information about this error, try `rustc --explain E0119`.

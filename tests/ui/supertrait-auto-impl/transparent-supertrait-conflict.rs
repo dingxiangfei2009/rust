@@ -1,11 +1,5 @@
 // Test that providing a supertrait item in `impl Sub` when an explicit
-// `impl Super` already exists compiles for now (the supertrait item in
-// impl Sub is accepted but currently unused).
-//
-// FIXME(supertrait_auto_impl): When transparent resolution generates
-// synthetic impls, this should become a coherence error (E0119).
-
-//@ check-pass
+// `impl Super` already exists produces an error.
 
 #![feature(supertrait_auto_impl)]
 
@@ -22,7 +16,7 @@ impl Super for Foo {
     fn super_method(&self) -> i32 { 1 }
 }
 impl Sub for Foo {
-    fn super_method(&self) -> i32 { 2 }  // Accepted but currently unused
+    fn super_method(&self) -> i32 { 2 }  //~ ERROR supertrait item
     fn sub_method(&self) -> i32 { 3 }
 }
 

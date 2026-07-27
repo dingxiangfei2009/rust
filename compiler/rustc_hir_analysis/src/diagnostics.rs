@@ -2020,3 +2020,12 @@ pub(crate) struct OnlyStructsCanBeViewedAdt<'tcx> {
     pub article: &'static str,
     pub kind: &'static str,
 }
+
+#[derive(Diagnostic)]
+#[diag("supertrait item `{$supertrait}` conflicts with explicit impl for `{$self_ty}`", code = E0119)]
+pub(crate) struct TransparentSupertrait {
+    #[primary_span]
+    pub span: Span,
+    pub supertrait: String,
+    pub self_ty: String,
+}
