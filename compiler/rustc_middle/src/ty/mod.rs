@@ -299,6 +299,9 @@ pub struct SyntheticSupertraitImpl {
     pub supertrait_def_id: DefId,
     /// Pairs mapping each original transparent item to its synthetic counterpart.
     pub item_pairs: Vec<SyntheticItemPair>,
+    /// A clone of the original impl's AST generics, used to create matching
+    /// HIR generic params for the synthetic impl.
+    pub original_generics: Box<ast::Generics>,
 }
 
 /// Maps an original transparent supertrait item to its synthetic copy.

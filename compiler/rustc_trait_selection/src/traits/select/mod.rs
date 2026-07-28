@@ -2121,10 +2121,13 @@ impl<'tcx> SelectionContext<'_, 'tcx> {
         }
 
         match tcx.impls_are_allowed_to_overlap(lhs, victim) {
-            // For candidates which already reference errors it doesn't really
-            // matter what we do 🤷
+            // For auto impl overlap (and error-referencing impls), prefer the
+            // more specific impl. We use `must_apply_modulo_regions` here
+            // because auto impl overlap resolution is semantically safe
+            // regardless of region constraints — the concrete synthetic impl
+            // should always be preferred over the blanket auto impl.
             Some(ty::ImplOverlapKind::Permitted { marker: false }) => {
-                lhs_evaluation.must_apply_considering_regions()
+                lhs_evaluation.must_apply_modulo_regions()
             }
             Some(ty::ImplOverlapKind::Permitted { marker: true }) => {
                 // Subtle: If the predicate we are evaluating has inference

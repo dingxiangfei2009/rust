@@ -3701,7 +3701,7 @@ impl<'a, 'ast, 'ra, 'tcx> LateResolutionVisitor<'a, 'ast, 'ra, 'tcx> {
                                                 // synthetic impl entries for lowering.
                                                 if let Some(trait_id) = trait_id {
                                                     this.detect_transparent_supertrait_items(
-                                                        item_id, trait_id, impl_items,
+                                                        item_id, trait_id, impl_items, generics,
                                                     );
                                                 }
                                             });
@@ -3936,6 +3936,7 @@ impl<'a, 'ast, 'ra, 'tcx> LateResolutionVisitor<'a, 'ast, 'ra, 'tcx> {
         impl_node_id: NodeId,
         trait_def_id: DefId,
         impl_items: &[Box<AssocItem>],
+        generics: &Generics,
     ) {
         // Group transparent items by their supertrait.
         let mut supertrait_items: FxIndexMap<DefId, Vec<NodeId>> = Default::default();
@@ -3962,7 +3963,6 @@ impl<'a, 'ast, 'ra, 'tcx> LateResolutionVisitor<'a, 'ast, 'ra, 'tcx> {
         }
 
         // For each supertrait with transparent items, create a synthetic impl.
-        // Use the resolver's own data to avoid query cycles.
         // The synthetic impl is created during lowering of the original impl,
         // so its parent must be the original impl for `lower_to_hir` to find it.
         let impl_def_id = self.r.current_owner.def_id;
@@ -4052,6 +4052,7 @@ impl<'a, 'ast, 'ra, 'tcx> LateResolutionVisitor<'a, 'ast, 'ra, 'tcx> {
                 impl_node_id: synthetic_impl_node_id,
                 supertrait_def_id,
                 item_pairs,
+                original_generics: Box::new(generics.clone()),
             });
         }
 

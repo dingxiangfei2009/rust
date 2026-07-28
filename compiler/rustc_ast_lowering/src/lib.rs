@@ -196,10 +196,14 @@ struct LoweringContext<'a, 'hir> {
     next_node_id: NodeId,
     /// Maps the `NodeId`s created during lowering to `LocalDefId`s.
     node_id_to_def_id: NodeMap<LocalDefId>,
-    /// Overlay over resolver's `partial_res_map` used by delegation.
-    /// This only contains `PartialRes::new(Res::Local(self_param_id))`,
-    /// so we only store `self_param_id`.
-    partial_res_overrides: NodeMap<NodeId>,
+    /// Overlay over resolver's `partial_res_map` used by delegation and
+    /// synthetic supertrait impls. Entries here take priority over the
+    /// resolver's `partial_res_map`.
+    partial_res_overrides: NodeMap<PartialRes>,
+    /// Overlay over `owner.lifetimes_res_map` used by synthetic supertrait
+    /// impls. Entries here take priority, remapping lifetime references from
+    /// the original impl's params to the synthetic impl's params.
+    lifetime_res_overrides: NodeMap<LifetimeRes>,
 
     allow_contracts: Arc<[Symbol]>,
     allow_try_trait: Arc<[Symbol]>,
@@ -256,6 +260,7 @@ impl<'a, 'hir> LoweringContext<'a, 'hir> {
             next_node_id: resolver.next_node_id,
             node_id_to_def_id: NodeMap::default(),
             partial_res_overrides: NodeMap::default(),
+            lifetime_res_overrides: NodeMap::default(),
 
             // Lowering state.
             try_block_scope: TryBlockScope::Function,
@@ -798,7 +803,7 @@ impl<'hir> LoweringContext<'_, 'hir> {
 
     fn get_partial_res(&self, id: NodeId) -> Option<PartialRes> {
         match self.partial_res_overrides.get(&id) {
-            Some(self_param_id) => Some(PartialRes::new(Res::Local(*self_param_id))),
+            Some(partial_res) => Some(*partial_res),
             None => self.resolver.partial_res_map.get(&id).copied(),
         }
     }
@@ -2214,7 +2219,7 @@ impl<'hir> LoweringContext<'_, 'hir> {
         source: LifetimeSource,
         syntax: LifetimeSyntax,
     ) -> &'hir hir::Lifetime {
-        let res = if let Some(res) = self.owner.get_lifetime_res(id) {
+        let res = if let Some(res) = self.lifetime_res_overrides.get(&id).copied().or_else(|| self.owner.get_lifetime_res(id)) {
             match res {
                 LifetimeRes::Param { param, .. } => hir::LifetimeKind::Param(param),
                 LifetimeRes::Fresh { param, .. } => {

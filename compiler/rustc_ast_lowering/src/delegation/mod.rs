@@ -41,7 +41,7 @@ use std::iter;
 use ast::visit::Visitor;
 use generics::GenericsGenerationResult;
 use hir::HirId;
-use hir::def::Res;
+use hir::def::{PartialRes, Res};
 use rustc_abi::ExternAbi;
 use rustc_ast as ast;
 use rustc_ast::*;
@@ -595,7 +595,7 @@ impl SelfResolver<'_, '_, '_> {
             && sig_id == self.path_id
         {
             self.overwrites.push(id);
-            self.ctxt.partial_res_overrides.insert(id, self.self_param_id);
+            self.ctxt.partial_res_overrides.insert(id, PartialRes::new(Res::Local(self.self_param_id)));
         }
     }
 }

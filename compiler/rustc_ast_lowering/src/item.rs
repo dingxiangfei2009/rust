@@ -3,14 +3,14 @@ use rustc_ast::visit::AssocCtxt;
 use rustc_ast::*;
 use rustc_errors::{E0570, ErrorGuaranteed, struct_span_code_err};
 use rustc_hir::attrs::{AttributeKind, EiiImplResolution};
-use rustc_hir::def::{DefKind, PerNS, Res};
+use rustc_hir::def::{DefKind, LifetimeRes, PartialRes, PerNS, Res};
 use rustc_hir::{
     self as hir, CRATE_OWNER_ID, HirId, ImplItemImplKind, LifetimeSource, PredicateOrigin, Target,
     find_attr,
 };
 use rustc_middle::span_bug;
 use rustc_middle::ty::data_structures::IndexMap;
-use rustc_middle::ty::{ResolverAstLowering, SyntheticSupertraitImpl, TyCtxt};
+use rustc_middle::ty::{PerOwnerResolverData, ResolverAstLowering, SyntheticSupertraitImpl, TyCtxt};
 use rustc_span::def_id::{DefId, LocalDefId};
 use rustc_span::edit_distance::find_best_match_for_name;
 use rustc_span::{DUMMY_SP, DesugaringKind, Ident, Span, Symbol, kw, sym};
@@ -481,8 +481,6 @@ impl<'hir> LoweringContext<'_, 'hir> {
                 let synthetic_impls = self.resolver
                     .synthetic_supertrait_impls
                     .get(&id);
-
-                
 
                 // Keep all items in the original impl (including transparent
                 // supertrait items). The transparent items are also returned
@@ -2157,6 +2155,10 @@ impl<'hir> LoweringContext<'_, 'hir> {
         let owner_id = self.owner_id(entry.impl_node_id);
         let supertrait_def_id = entry.supertrait_def_id;
 
+        // Save the original impl's owner data before with_hir_id_owner
+        // switches to the synthetic impl's (empty) owner data.
+        let original_owner_data = self.owner;
+
         self.with_hir_id_owner(entry.impl_node_id, |this| {
             let span = this.lower_span(ast_self_ty.span);
 
@@ -2165,17 +2167,166 @@ impl<'hir> LoweringContext<'_, 'hir> {
             // from the original impl, which have proper bodies/signatures.
             let synthetic_item_ids: Vec<hir::ImplItemId> = Vec::new();
 
-            // Re-lower the self type within this synthetic impl's owner context.
+            // Create synthetic generic params mirroring the original impl's generics.
+            // This follows the delegation generics pattern (delegation/generics.rs:540-620).
+            let mut old_to_new_def_id: Vec<(LocalDefId, LocalDefId)> = Vec::new();
+            let params = this.arena.alloc_from_iter(
+                entry.original_generics.params.iter().map(|param| {
+                    let def_kind = match param.kind {
+                        ast::GenericParamKind::Lifetime => DefKind::LifetimeParam,
+                        ast::GenericParamKind::Type { .. } => DefKind::TyParam,
+                        ast::GenericParamKind::Const { .. } => DefKind::ConstParam,
+                    };
+
+                    let param_span = this.lower_span(param.ident.span);
+                    let node_id = this.next_node_id();
+                    let new_def_id = this.create_def(
+                        node_id,
+                        Some(param.ident.name),
+                        def_kind,
+                        param_span,
+                    );
+
+                    // Record old→new DefId mapping for partial_res_overrides.
+                    // We can't use opt_local_def_id here because the current
+                    // owner is the synthetic impl (empty), not the original impl.
+                    // Look up the param's DefId from the original impl's owner data.
+                    let old_def_id = original_owner_data
+                        .node_id_to_def_id.get(&param.id).copied();
+                    if let Some(old_def_id) = old_def_id {
+                        old_to_new_def_id.push((old_def_id, new_def_id));
+                    }
+
+                    let kind = match &param.kind {
+                        ast::GenericParamKind::Lifetime => {
+                            hir::GenericParamKind::Lifetime {
+                                kind: hir::LifetimeParamKind::Explicit,
+                            }
+                        }
+                        ast::GenericParamKind::Type { .. } => {
+                            hir::GenericParamKind::Type { default: None, synthetic: false }
+                        }
+                        ast::GenericParamKind::Const { ty, .. } => {
+                            let ty = this.lower_ty_alloc(
+                                ty,
+                                ImplTraitContext::Disallowed(ImplTraitPosition::GenericDefault),
+                            );
+                            hir::GenericParamKind::Const { ty, default: None }
+                        }
+                    };
+
+                    let hir_id = this.lower_node_id(node_id);
+                    hir::GenericParam {
+                        hir_id,
+                        colon_span: None,
+                        def_id: new_def_id,
+                        kind,
+                        name: hir::ParamName::Plain(Ident::new(param.ident.name, param_span)),
+                        pure_wrt_drop: false,
+                        source: hir::GenericParamSource::Generics,
+                        span: param_span,
+                    }
+                }),
+            );
+
+            // Install partial_res_overrides so that when lowering the self_ty,
+            // references to the original impl's type params resolve to the
+            // synthetic impl's new params instead.
+            // We walk the AST self_ty and where clause predicates to find
+            // nodes that resolve to original params, and install overrides
+            // for each. This covers both type/const params (via partial_res)
+            // and lifetime params (via lifetime_res).
+            struct ParamOverrideVisitor<'a, 'b, 'hir> {
+                lowerer: &'a LoweringContext<'b, 'hir>,
+                original_owner: &'a PerOwnerResolverData<'hir>,
+                old_to_new: &'a [(LocalDefId, LocalDefId)],
+                partial_res_overrides: Vec<(NodeId, PartialRes)>,
+                lifetime_res_overrides: Vec<(NodeId, LifetimeRes)>,
+            }
+            impl rustc_ast::visit::Visitor<'_> for ParamOverrideVisitor<'_, '_, '_> {
+                fn visit_ty(&mut self, ty: &ast::Ty) {
+                    // Check if this type node resolves to one of our original params.
+                    if let Some(partial_res) = self.lowerer.resolver.partial_res_map.get(&ty.id) {
+                        if let Some(full_res) = partial_res.full_res() {
+                            if let Res::Def(def_kind, def_id) = full_res {
+                                for (old_id, new_id) in self.old_to_new {
+                                    if def_id == old_id.to_def_id() {
+                                        self.partial_res_overrides.push((
+                                            ty.id,
+                                            PartialRes::new(Res::Def(def_kind, new_id.to_def_id())),
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    rustc_ast::visit::walk_ty(self, ty);
+                }
+                fn visit_lifetime(&mut self, lt: &ast::Lifetime, _kind: rustc_ast::visit::LifetimeCtxt) {
+                    // Check if this lifetime resolves to one of our original params.
+                    if let Some(res) = self.original_owner.get_lifetime_res(lt.id) {
+                        if let LifetimeRes::Param { param, binder } = res {
+                            for (old_id, new_id) in self.old_to_new {
+                                if param == *old_id {
+                                    self.lifetime_res_overrides.push((
+                                        lt.id,
+                                        LifetimeRes::Param { param: *new_id, binder },
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            let mut visitor = ParamOverrideVisitor {
+                lowerer: this,
+                original_owner: original_owner_data,
+                old_to_new: &old_to_new_def_id,
+                partial_res_overrides: Vec::new(),
+                lifetime_res_overrides: Vec::new(),
+            };
+            rustc_ast::visit::Visitor::visit_ty(&mut visitor, ast_self_ty);
+            // Also walk where clause predicates to collect overrides
+            // for type references within them.
+            for predicate in &entry.original_generics.where_clause.predicates {
+                rustc_ast::visit::Visitor::visit_where_predicate(&mut visitor, predicate);
+            }
+            // Extract override vecs from the visitor to release the
+            // immutable borrow on `this` before we mutably insert.
+            let partial_overrides = visitor.partial_res_overrides;
+            let lifetime_overrides = visitor.lifetime_res_overrides;
+            for (node_id, partial_res) in partial_overrides {
+                this.partial_res_overrides.insert(node_id, partial_res);
+            }
+            for (node_id, lifetime_res) in lifetime_overrides {
+                this.lifetime_res_overrides.insert(node_id, lifetime_res);
+            }
+
+            // Re-lower the self type with overrides active.
             let self_ty = this.lower_ty_alloc(
                 ast_self_ty,
                 ImplTraitContext::Disallowed(ImplTraitPosition::ImplSelf),
             );
 
-            // Create fresh empty generics.
+            // Lower where clause predicates with overrides active.
+            let mut dedup_map = Default::default();
+            let predicates: Vec<_> = entry.original_generics.where_clause.predicates.iter().map(|predicate| {
+                this.lower_where_predicate(
+                    predicate,
+                    &entry.original_generics.params,
+                    &mut dedup_map,
+                )
+            }).collect();
+
+            // Remove the overrides.
+            this.partial_res_overrides.clear();
+            this.lifetime_res_overrides.clear();
+
+            let has_where_clause_predicates = !entry.original_generics.where_clause.predicates.is_empty();
             let generics = this.arena.alloc(hir::Generics {
-                params: &[],
-                predicates: &[],
-                has_where_clause_predicates: false,
+                params,
+                predicates: this.arena.alloc_from_iter(predicates),
+                has_where_clause_predicates,
                 where_clause_span: span,
                 span,
             });
