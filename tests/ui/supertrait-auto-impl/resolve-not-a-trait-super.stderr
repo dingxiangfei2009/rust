@@ -1,0 +1,9 @@
+error[E0404]: expected trait, found struct `NotATrait`
+  --> $DIR/resolve-not-a-trait-super.rs:12:11
+   |
+LL | auto impl NotATrait for trait Sub {}
+   |           ^^^^^^^^^ not a trait
+
+error: aborting due to 1 previous error
+
+For more information about this error, try `rustc --explain E0404`.

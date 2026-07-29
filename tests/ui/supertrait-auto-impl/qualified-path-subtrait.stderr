@@ -1,0 +1,8 @@
+error: expected one of `where` or `{`, found `::`
+  --> $DIR/qualified-path-subtrait.rs:19:32
+   |
+LL | auto impl Super for trait inner::Sub {}
+   |                                ^^ expected one of `where` or `{`
+
+error: aborting due to 1 previous error
+

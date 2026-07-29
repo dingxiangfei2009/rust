@@ -3171,6 +3171,14 @@ impl<'a, 'ast, 'ra, 'tcx> LateResolutionVisitor<'a, 'ast, 'ra, 'tcx> {
                         ) {
                             let res = binding.res();
                             this.r.record_partial_res(item.id, PartialRes::new(res));
+                        } else {
+                            this.r.dcx().span_err(
+                                auto_impl.for_trait.span,
+                                format!(
+                                    "cannot find trait `{}` in this scope",
+                                    auto_impl.for_trait,
+                                ),
+                            );
                         }
 
                         // Visit generics.

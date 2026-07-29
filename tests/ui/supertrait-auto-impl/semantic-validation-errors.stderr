@@ -1,0 +1,8 @@
+error: cannot implement a trait for itself
+  --> $DIR/semantic-validation-errors.rs:11:11
+   |
+LL | auto impl SelfTrait for trait SelfTrait {
+   |           ^^^^^^^^^
+
+error: aborting due to 1 previous error
+

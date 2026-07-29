@@ -1,0 +1,34 @@
+error[E0200]: the trait `UnsafeTrait` requires an `unsafe impl` declaration
+  --> $DIR/safety-validation.rs:15:1
+   |
+LL | / auto impl UnsafeTrait for trait SubOfUnsafe {
+LL | |
+LL | |     fn foo(&self) {}
+LL | | }
+   | |_^
+   |
+   = note: the trait `UnsafeTrait` enforces invariants that the compiler can't check. Review the trait documentation and make sure this implementation upholds those invariants before adding the `unsafe` keyword
+help: add `unsafe` to this trait implementation
+   |
+LL | unsafe auto impl UnsafeTrait for trait SubOfUnsafe {
+   | ++++++
+
+error[E0199]: implementing the trait `SafeTrait` is not unsafe
+  --> $DIR/safety-validation.rs:29:1
+   |
+LL | / unsafe auto impl SafeTrait for trait SubOfSafe {
+LL | |
+LL | |     fn safe_method(&self) {}
+LL | | }
+   | |_^
+   |
+help: remove `unsafe` from this trait implementation
+   |
+LL - unsafe auto impl SafeTrait for trait SubOfSafe {
+LL + auto impl SafeTrait for trait SubOfSafe {
+   |
+
+error: aborting due to 2 previous errors
+
+Some errors have detailed explanations: E0199, E0200.
+For more information about an error, try `rustc --explain E0199`.

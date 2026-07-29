@@ -2029,3 +2029,4 @@ pub(crate) struct TransparentSupertrait {
     pub supertrait: String,
     pub self_ty: String,
 }
+

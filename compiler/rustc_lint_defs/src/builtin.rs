@@ -93,6 +93,7 @@ pub mod hardwired {
             REFINING_IMPL_TRAIT_INTERNAL,
             REFINING_IMPL_TRAIT_REACHABLE,
             RENAMED_AND_REMOVED_LINTS,
+            REDUNDANT_AUTO_IMPL_OVERRIDE,
             REPR_C_ENUMS_LARGER_THAN_INT,
             RESOLVING_TO_ITEMS_SHADOWING_SUPERTRAIT_ITEMS,
             RTSAN_NONBLOCKING_ASYNC,
@@ -5180,6 +5181,45 @@ declare_lint! {
     "detects when a supertrait item is shadowed by a subtrait item",
     @feature_gate = supertrait_item_shadowing;
 }
+
+declare_lint! {
+    /// The `redundant_auto_impl_override` lint detects when a manual `impl Trait for Type`
+    /// is redundant because an `auto impl Trait for trait Sub` already covers it.
+    ///
+    /// ### Example
+    ///
+    /// ```rust,compile_fail
+    /// #![feature(supertrait_auto_impl)]
+    /// #![deny(redundant_auto_impl_override)]
+    ///
+    /// trait Super { fn foo(&self); }
+    /// trait Sub: Super { fn bar(&self); }
+    ///
+    /// auto impl Super for trait Sub {
+    ///     fn foo(&self) {}
+    /// }
+    ///
+    /// struct Foo;
+    /// impl Sub for Foo { fn bar(&self) {} }
+    ///
+    /// // This manual impl is redundant — the auto impl already provides it.
+    /// impl Super for Foo { fn foo(&self) {} }
+    /// ```
+    ///
+    /// {{produces}}
+    ///
+    /// ### Explanation
+    ///
+    /// When an `auto impl Super for trait Sub` exists and a type implements `Sub`,
+    /// the auto impl automatically provides the `Super` implementation. A manual
+    /// `impl Super for Type` will suppress the auto impl (it takes precedence),
+    /// but may indicate that the user is unaware of the auto impl.
+    pub REDUNDANT_AUTO_IMPL_OVERRIDE,
+    Allow,
+    "detects manual impl that is redundant due to an auto impl",
+    @feature_gate = supertrait_auto_impl;
+}
+
 
 declare_lint! {
     /// The `tail_expr_drop_order` lint looks for those values generated at the tail expression location,

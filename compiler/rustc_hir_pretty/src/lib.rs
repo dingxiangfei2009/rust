@@ -807,7 +807,7 @@ impl<'a> State<'a> {
                 self.end(ib);
                 self.end(cb);
             }
-            hir::ItemKind::AutoImplTrait { safety, generics, ref trait_ref, for_trait_ident, .. } => {
+            hir::ItemKind::AutoImplTrait { safety, generics, ref trait_ref, for_trait_ident, items, .. } => {
                 let (cb, ib) = self.head("");
                 self.print_safety(safety);
                 self.word("auto impl");
@@ -817,9 +817,13 @@ impl<'a> State<'a> {
                 self.print_ident(for_trait_ident);
                 self.print_generic_params(generics.params);
                 self.print_where_clause(generics);
-                self.word(" {}");
+                self.word(" {");
+                self.hardbreak_if_not_bol();
                 self.end(ib);
-                self.end(cb);
+                for impl_item in items {
+                    self.ann.nested(self, Nested::ImplItem(*impl_item));
+                }
+                self.bclose(item.span, cb);
             }
         }
         self.ann.post(self, AnnNode::Item(item))

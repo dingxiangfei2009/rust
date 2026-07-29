@@ -1,0 +1,8 @@
+error: expected identifier, found `{`
+  --> $DIR/parse-missing-subtrait.rs:10:27
+   |
+LL | auto impl Super for trait {}
+   |                           ^ expected identifier
+
+error: aborting due to 1 previous error
+

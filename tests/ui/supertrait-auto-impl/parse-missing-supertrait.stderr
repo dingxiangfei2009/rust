@@ -1,0 +1,8 @@
+error: expected `<`, found keyword `trait`
+  --> $DIR/parse-missing-supertrait.rs:10:15
+   |
+LL | auto impl for trait Sub {}
+   |               ^^^^^ expected `<`
+
+error: aborting due to 1 previous error
+

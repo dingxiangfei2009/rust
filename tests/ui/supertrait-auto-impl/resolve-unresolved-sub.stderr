@@ -1,0 +1,8 @@
+error: cannot find trait `Nonexistent` in this scope
+  --> $DIR/resolve-unresolved-sub.rs:10:27
+   |
+LL | auto impl Super for trait Nonexistent {}
+   |                           ^^^^^^^^^^^
+
+error: aborting due to 1 previous error
+

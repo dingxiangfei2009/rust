@@ -326,8 +326,7 @@ pub(super) fn check_item<'tcx>(
             res
         }
         hir::ItemKind::Fn { sig, .. } => check_item_fn(tcx, def_id, sig.decl),
-        // AutoImplTrait items don't have full wfcheck support yet.
-        hir::ItemKind::AutoImplTrait { .. } => Ok(()),
+        hir::ItemKind::AutoImplTrait { .. } => check_auto_impl_trait(tcx, item),
         // Note: do not add new entries to this match. Instead add all new logic in `check_item_type`
         _ => span_bug!(item.span, "should have been handled by the type based wf check: {item:?}"),
     }
@@ -2494,3 +2493,43 @@ struct RedundantLifetimeArgsLint<'tcx> {
     // The lifetime we can replace the victim with.
     candidate: ty::Region<'tcx>,
 }
+
+fn check_auto_impl_trait<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    item: &'tcx hir::Item<'tcx>,
+) -> Result<(), ErrorGuaranteed> {
+    let hir::ItemKind::AutoImplTrait {
+        safety: _,
+        generics: _,
+        trait_ref,
+        for_trait_ident: _,
+        for_trait_def_id,
+        items: _,
+    } = item.kind else {
+        bug!("expected AutoImplTrait");
+    };
+
+    let Some(super_def_id) = trait_ref.trait_def_id() else {
+        return Ok(());
+    };
+
+    let sub_def_id = for_trait_def_id;
+
+    // If the subtrait didn't resolve to a valid trait, bail out.
+    // The resolver already emitted an error.
+    if !matches!(tcx.def_kind(sub_def_id), hir::def::DefKind::Trait | hir::def::DefKind::TraitAlias) {
+        return Ok(());
+    }
+
+    // Reject `auto impl Foo for trait Foo` — a trait cannot auto-impl itself.
+    if super_def_id == sub_def_id {
+        let err = tcx.dcx().span_err(
+            trait_ref.path.span,
+            "cannot implement a trait for itself",
+        );
+        return Err(err);
+    }
+
+    Ok(())
+}
+

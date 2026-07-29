@@ -1,0 +1,24 @@
+#![attr = Feature([supertrait_auto_impl#0])]
+extern crate std;
+#[attr = PreludeImport]
+use ::std::prelude::rust_2015::*;
+// Verify HIR representation of `auto impl` trait blocks.
+// (Test 5a from test plan)
+//@ compile-flags: -Zunpretty=hir
+//@ check-pass
+
+
+trait Super {
+    fn super_method(&self)
+    -> i32;
+}
+
+trait Sub: Super {
+    fn sub_method(&self)
+    -> i32;
+}
+
+auto impl Super for trait Sub {
+
+    fn super_method(&self) -> i32 { self.sub_method() * 2 }
+}

@@ -631,6 +631,11 @@ impl<'b, 'a: 'b> FmtVisitor<'a> {
                     // For now, leave the contents of the Span unformatted.
                     self.push_rewrite(item.span, None)
                 }
+                ast::ItemKind::AutoImplTrait(..) => {
+                    // TODO: rewrite auto impl trait items once syntax is established.
+                    // For now, leave the contents of the Span unformatted.
+                    self.push_rewrite(item.span, None)
+                }
             };
         }
         self.skip_context = skip_context_saved;

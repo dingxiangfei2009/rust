@@ -1,0 +1,63 @@
+error[E0277]: the trait bound `NoImpl: Super` is not satisfied
+  --> $DIR/error-messages.rs:32:20
+   |
+LL |     requires_super(&x);
+   |     -------------- ^^ unsatisfied trait bound
+   |     |
+   |     required by a bound introduced by this call
+   |
+help: the trait `Sub` is not implemented for `NoImpl`
+  --> $DIR/error-messages.rs:28:1
+   |
+LL | struct NoImpl;
+   | ^^^^^^^^^^^^^
+help: this trait has no implementations, consider adding one
+  --> $DIR/error-messages.rs:14:1
+   |
+LL | trait Sub: Super {
+   | ^^^^^^^^^^^^^^^^
+note: required for `NoImpl` to implement `Super`, because of `auto impl Super for trait Sub`
+  --> $DIR/error-messages.rs:18:11
+   |
+LL | auto impl Super for trait Sub {
+   |           ^^^^^
+   = help: the auto impl requires `NoImpl` to implement `Sub`
+note: required by a bound in `requires_super`
+  --> $DIR/error-messages.rs:24:22
+   |
+LL | fn requires_super<T: Super>(t: &T) -> i32 {
+   |                      ^^^^^ required by this bound in `requires_super`
+
+error[E0277]: the trait bound `Implemented: Super` is not satisfied
+  --> $DIR/error-messages.rs:62:19
+   |
+LL |     requires_both(&x);
+   |     ------------- ^^ unsatisfied trait bound
+   |     |
+   |     required by a bound introduced by this call
+   |
+help: the trait `Sub` is not implemented for `Implemented`
+  --> $DIR/error-messages.rs:51:1
+   |
+LL | struct Implemented;
+   | ^^^^^^^^^^^^^^^^^^
+help: this trait has no implementations, consider adding one
+  --> $DIR/error-messages.rs:14:1
+   |
+LL | trait Sub: Super {
+   | ^^^^^^^^^^^^^^^^
+note: required for `Implemented` to implement `Super`, because of `auto impl Super for trait Sub`
+  --> $DIR/error-messages.rs:18:11
+   |
+LL | auto impl Super for trait Sub {
+   |           ^^^^^
+   = help: the auto impl requires `Implemented` to implement `Sub`
+note: required by a bound in `requires_both`
+  --> $DIR/error-messages.rs:56:21
+   |
+LL | fn requires_both<T: Super + SuperWithBound>(t: &T) -> i32 {
+   |                     ^^^^^ required by this bound in `requires_both`
+
+error: aborting due to 2 previous errors
+
+For more information about this error, try `rustc --explain E0277`.

@@ -4274,6 +4274,26 @@ impl<'a, 'tcx> TypeErrCtxt<'a, 'tcx> {
                             &data,
                         );
                     }
+                    Some(Node::Item(hir::Item {
+                        kind: hir::ItemKind::AutoImplTrait {
+                            trait_ref: auto_trait_ref,
+                            for_trait_ident,
+                            ..
+                        },
+                        ..
+                    })) => {
+                        let spans: MultiSpan = auto_trait_ref.path.span.into();
+                        err.span_note(
+                            spans,
+                            format!(
+                                "{msg}, because of `auto impl {} for trait {for_trait_ident}`",
+                                tcx.def_path_str(auto_trait_ref.trait_def_id().unwrap()),
+                            ),
+                        );
+                        err.help(format!(
+                            "the auto impl requires `{self_ty_str}` to implement `{for_trait_ident}`",
+                        ));
+                    }
                     _ => {
                         err.note(msg);
                     }
